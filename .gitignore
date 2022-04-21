@@ -1,0 +1,6 @@
+.vscode
+central/bin/bin
+distributed/build
+distributed/sdkconfig
+distributed/sdkconfig.old
+*.o
