@@ -6,12 +6,14 @@
 #include "esp_http_client.h"
 #include "esp_log.h"
 #include "freertos/semphr.h"
-
+#include "esp_mac.h"
+#include "cJSON.h"
 #include "wifi.h"
 #include "mqtt.h"
 
 xSemaphoreHandle conexaoWifiSemaphore;
 xSemaphoreHandle conexaoMQTTSemaphore;
+xSemaphoreHandle recebeuMensagem; 
 
 void conectadoWifi(void * params)
 {
@@ -27,15 +29,42 @@ void conectadoWifi(void * params)
 
 void trataComunicacaoComServidor(void * params)
 {
-  char mensagem[50];
+  char *msg;
+  char topic[100];
   if(xSemaphoreTake(conexaoMQTTSemaphore, portMAX_DELAY))
   {
+    uint8_t derived_mac_addr[6] = {0};
+    char mac_addr[50]; 
+    ESP_ERROR_CHECK(esp_read_mac(derived_mac_addr, ESP_MAC_WIFI_STA));
+    sprintf(mac_addr, "%x:%x:%x:%x:%x:%x",
+             derived_mac_addr[0], derived_mac_addr[1], derived_mac_addr[2],
+             derived_mac_addr[3], derived_mac_addr[4], derived_mac_addr[5]);
+    sprintf(topic, "fse2021/180113861/dispositivos/%s",mac_addr);
+
+    cJSON *item = cJSON_CreateObject();
+    cJSON_AddItemToObject(item, "id", cJSON_CreateString(mac_addr));
+    msg = cJSON_Print(item);
+    mqtt_envia_mensagem(topic, msg);  
+    cJSON_Delete(item);
+    free(msg);
+
+    mqtt_inscrever(topic);
+    recebeuMensagem = xSemaphoreCreateBinary();
+    if(xSemaphoreTake(recebeuMensagem, portMAX_DELAY)) {
+      char json_message[100];
+      obter_mensagem(json_message);
+      cJSON *root = cJSON_Parse(json_message);
+      cJSON *room = cJSON_GetObjectItem(root, "comodo");
+      sprintf(topic, "fse2021/180113861/%s", room->valuestring);
+    }
+
     while(true)
     {
-       float temperatura = 20.0 + (float)rand()/(float)(RAND_MAX/10.0);
-       sprintf(mensagem, "temperatura1: %f", temperatura);
-       mqtt_envia_mensagem("datetime", mensagem);
-       vTaskDelay(3000 / portTICK_PERIOD_MS);
+        float temperature = 20.0 + (float)rand()/(float)(RAND_MAX/10.0);
+        char message[100]; 
+        sprintf(message, "temperatura1: %f", temperature);
+        mqtt_envia_mensagem(topic, message);
+        vTaskDelay(3000 / portTICK_PERIOD_MS);
     }
   }
 }
@@ -55,5 +84,7 @@ void app_main(void)
     wifi_start();
 
     xTaskCreate(&conectadoWifi,  "Conexão ao MQTT", 4096, NULL, 1, NULL);
+    
     xTaskCreate(&trataComunicacaoComServidor, "Comunicação com Broker", 4096, NULL, 1, NULL);
+
 }
