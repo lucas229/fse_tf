@@ -5,17 +5,24 @@
 
 #include "mqtt.h"
 #include "posix_sockets.h"
+#include "cJSON.h"
 
 void publish_callback(void **unused, struct mqtt_response_publish *published);
 void *client_refresher(void *client);
 void exit_example(int status, int sockfd, pthread_t *client_daemon);
 
+const char* addr = "test.mosquitto.org";
+const char* port = "1883";
+int sockfd;
+int new_msg = 0;
+char msg_topic[50];
+char *msg;
+
 int main()
 {
-    const char* addr = "test.mosquitto.org";
-    const char* port = "1883";
-    const char* topic = "datetime";
-    int sockfd = open_nb_socket(addr, port);
+    const char* topic = "fse2021/180113861/dispositivos/+";
+
+    sockfd = open_nb_socket(addr, port);
     if(sockfd == -1)
     {
         perror("Failed to open socket: ");
@@ -43,7 +50,17 @@ int main()
         exit_example(EXIT_FAILURE, sockfd, NULL);
     }
     mqtt_subscribe(&client, topic, 0);
-    while(fgetc(stdin) != EOF);
+    while(1) {
+        if(new_msg) {
+            mqtt_unsubscribe(&client, topic);
+            mqtt_publish(&client, msg_topic, msg, strlen(msg), MQTT_PUBLISH_QOS_0);
+            mqtt_subscribe(&client, topic, 0);
+            free(msg);
+            new_msg = 0;
+        }
+        usleep(100000);
+    }
+    pthread_join(client_daemon, NULL);
     exit_example(EXIT_SUCCESS, sockfd, &client_daemon);
 }
 
@@ -60,7 +77,12 @@ void exit_example(int status, int sockfd, pthread_t *client_daemon)
     exit(status);
 }
 
-void publish_callback(void** unused, struct mqtt_response_publish *published)
+void publisher(void **unused, struct mqtt_response_publish *published)
+{   
+    
+}
+
+void publish_callback(void **unused, struct mqtt_response_publish *published)
 {
     char* topic_name = (char*) malloc(published->topic_name_size + 1);
     memcpy(topic_name, published->topic_name, published->topic_name_size);
@@ -68,10 +90,28 @@ void publish_callback(void** unused, struct mqtt_response_publish *published)
 
     printf("Received publish('%s'): %s\n", topic_name, (const char*) published->application_message);
 
+    cJSON *root = cJSON_Parse(published->application_message);
+    cJSON *item = cJSON_GetObjectItem(root, "type");
+
+    if(strcmp(item->valuestring, "Cadastro") == 0) {
+        cJSON *device_id = cJSON_GetObjectItem(root, "id");
+        printf("ID: %s\n", device_id->valuestring);
+        printf("\nNome do cômodo: ");
+        char room_name[50];
+        scanf(" %[^\n]", room_name);
+
+        cJSON *item = cJSON_CreateObject();
+        cJSON_AddItemToObject(item, "comodo", cJSON_CreateString(room_name));
+
+        sprintf(msg_topic, "fse2021/180113861/dispositivos/%s", device_id->valuestring);
+        msg = cJSON_Print(item);
+        new_msg = 1;
+    }
+    cJSON_Delete(root);
     free(topic_name);
 }
 
-void* client_refresher(void* client)
+void* client_refresher(void *client)
 {
     while(1)
     {
