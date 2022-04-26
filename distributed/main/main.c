@@ -43,6 +43,7 @@ void trataComunicacaoComServidor(void * params)
 
     cJSON *item = cJSON_CreateObject();
     cJSON_AddItemToObject(item, "id", cJSON_CreateString(mac_addr));
+    cJSON_AddItemToObject(item, "type", cJSON_CreateString("Cadastro"));
     msg = cJSON_Print(item);
     mqtt_envia_mensagem(topic, msg);  
     cJSON_Delete(item);
@@ -55,14 +56,14 @@ void trataComunicacaoComServidor(void * params)
       obter_mensagem(json_message);
       cJSON *root = cJSON_Parse(json_message);
       cJSON *room = cJSON_GetObjectItem(root, "comodo");
-      sprintf(topic, "fse2021/180113861/%s", room->valuestring);
+      sprintf(topic, "fse2021/180113861/%s/temperatura", room->valuestring);
     }
 
     while(true)
     {
         float temperature = 20.0 + (float)rand()/(float)(RAND_MAX/10.0);
         char message[100]; 
-        sprintf(message, "temperatura1: %f", temperature);
+        sprintf(message, "%f", temperature);
         mqtt_envia_mensagem(topic, message);
         vTaskDelay(3000 / portTICK_PERIOD_MS);
     }

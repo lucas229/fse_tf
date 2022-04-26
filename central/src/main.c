@@ -10,11 +10,14 @@
 void publish_callback(void **unused, struct mqtt_response_publish *published);
 void *client_refresher(void *client);
 void exit_example(int status, int sockfd, pthread_t *client_daemon);
+void register_device(struct mqtt_response_publish *published);
+void handle_device_data(struct mqtt_response_publish *published); 
 
 const char* addr = "test.mosquitto.org";
 const char* port = "1883";
 int sockfd;
 int new_msg = 0;
+char room_name[50];
 char msg_topic[50];
 char *msg;
 
@@ -56,6 +59,9 @@ int main()
             mqtt_publish(&client, msg_topic, msg, strlen(msg), MQTT_PUBLISH_QOS_0);
             mqtt_subscribe(&client, topic, 0);
             free(msg);
+            char new_topic[100];
+            sprintf(new_topic, "fse2021/180113861/%s/temperatura", room_name);
+            mqtt_subscribe(&client, new_topic, 0);
             new_msg = 0;
         }
         usleep(100000);
@@ -77,13 +83,24 @@ void exit_example(int status, int sockfd, pthread_t *client_daemon)
     exit(status);
 }
 
-void publisher(void **unused, struct mqtt_response_publish *published)
-{   
-    
-}
 
 void publish_callback(void **unused, struct mqtt_response_publish *published)
 {
+    if(strstr(published->topic_name, "dispositivos") != NULL) {
+        register_device(published);
+    } else {
+        handle_device_data(published);
+    }
+}
+
+void handle_device_data(struct mqtt_response_publish *published) {
+    char message[500];
+    strcpy(message, published->application_message);
+    message[published->application_message_size] = '\0';
+    printf("Temperatura: %s ºC\n", message);
+}
+
+void register_device(struct mqtt_response_publish *published) {
     char* topic_name = (char*) malloc(published->topic_name_size + 1);
     memcpy(topic_name, published->topic_name, published->topic_name_size);
     topic_name[published->topic_name_size] = '\0';
@@ -97,7 +114,6 @@ void publish_callback(void **unused, struct mqtt_response_publish *published)
         cJSON *device_id = cJSON_GetObjectItem(root, "id");
         printf("ID: %s\n", device_id->valuestring);
         printf("\nNome do cômodo: ");
-        char room_name[50];
         scanf(" %[^\n]", room_name);
 
         cJSON *item = cJSON_CreateObject();
