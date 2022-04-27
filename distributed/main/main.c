@@ -32,6 +32,9 @@ void trataComunicacaoComServidor(void * params)
 {
   char *msg;
   char topic[100];
+  char temperature_topic[100];
+  char humidity_topic[100];
+  char status_topic[100];
   if(xSemaphoreTake(conexaoMQTTSemaphore, portMAX_DELAY))
   {
     uint8_t derived_mac_addr[6] = {0};
@@ -44,7 +47,7 @@ void trataComunicacaoComServidor(void * params)
 
     cJSON *item = cJSON_CreateObject();
     cJSON_AddItemToObject(item, "id", cJSON_CreateString(mac_addr));
-    cJSON_AddItemToObject(item, "type", cJSON_CreateString("Cadastro"));
+    cJSON_AddItemToObject(item, "type", cJSON_CreateString("cadastro"));
     msg = cJSON_Print(item);
     mqtt_envia_mensagem(topic, msg);  
     cJSON_Delete(item);
@@ -57,7 +60,9 @@ void trataComunicacaoComServidor(void * params)
       obter_mensagem(json_message);
       cJSON *root = cJSON_Parse(json_message);
       cJSON *room = cJSON_GetObjectItem(root, "comodo");
-      sprintf(topic, "fse2021/180113861/%s/temperatura", room->valuestring);
+      sprintf(temperature_topic, "fse2021/180113861/%s/temperatura", room->valuestring);
+      sprintf(status_topic, "fse2021/180113861/%s/estado", room->valuestring);
+      sprintf(humidity_topic, "fse2021/180113861/%s/umidade", room->valuestring);
     }
 
     DHT11_init(GPIO_NUM_4);
@@ -78,15 +83,25 @@ void trataComunicacaoComServidor(void * params)
 
         if(count == 5){
 
-          cJSON *dht_message = cJSON_CreateObject();
-          cJSON_AddItemToObject(dht_message, "type", cJSON_CreateString("Info"));
-          cJSON_AddItemToObject(dht_message, "temperature", cJSON_CreateNumber(temperature / valid_readings));
-          cJSON_AddItemToObject(dht_message, "humidity", cJSON_CreateNumber(humidity/valid_readings));
+          cJSON *dht_temperature = cJSON_CreateObject();
+          cJSON *dht_humidity = cJSON_CreateObject();
+
+          cJSON_AddItemToObject(dht_temperature, "type", cJSON_CreateString("temperature"));
+          cJSON_AddItemToObject(dht_temperature, "temperature", cJSON_CreateNumber(temperature / valid_readings));
+
+          cJSON_AddItemToObject(dht_humidity, "type" ,cJSON_CreateString("humidity"));
+          cJSON_AddItemToObject(dht_humidity, "humidity", cJSON_CreateNumber(humidity/valid_readings));
+
+          char *dht_temp_msg = cJSON_Print(dht_temperature);
+          char *dht_humidity_msg = cJSON_Print(dht_humidity);
+          mqtt_envia_mensagem(temperature_topic, dht_temp_msg);
+          mqtt_envia_mensagem(humidity_topic, dht_humidity_msg);
           
-          char *dht_msg = cJSON_Print(dht_message);
-          mqtt_envia_mensagem(topic, dht_msg);
-          free(dht_msg);
-          cJSON_Delete(dht_message);
+          free(dht_temp_msg);
+          free(dht_humidity_msg);
+          
+          cJSON_Delete(dht_temperature);
+          cJSON_Delete(dht_humidity);
 
           temperature = 0;
           humidity = 0;
