@@ -15,6 +15,7 @@
 xSemaphoreHandle conexaoWifiSemaphore;
 xSemaphoreHandle conexaoMQTTSemaphore;
 xSemaphoreHandle recebeuMensagem; 
+char mac_addr[50]; 
 
 void conectadoWifi(void * params)
 {
@@ -54,7 +55,6 @@ void trataComunicacaoComServidor(void * params)
   if(xSemaphoreTake(conexaoMQTTSemaphore, portMAX_DELAY))
   {
     uint8_t derived_mac_addr[6] = {0};
-    char mac_addr[50]; 
     ESP_ERROR_CHECK(esp_read_mac(derived_mac_addr, ESP_MAC_WIFI_STA));
     sprintf(mac_addr, "%x:%x:%x:%x:%x:%x",
              derived_mac_addr[0], derived_mac_addr[1], derived_mac_addr[2],
@@ -107,9 +107,12 @@ void trataComunicacaoComServidor(void * params)
 
           cJSON_AddItemToObject(dht_temperature, "type", cJSON_CreateString("temperature"));
           cJSON_AddItemToObject(dht_temperature, "temperature", cJSON_CreateNumber(temperature / valid_readings));
+          cJSON_AddItemToObject(dht_temperature, "id", cJSON_CreateString(mac_addr));
+
 
           cJSON_AddItemToObject(dht_humidity, "type" ,cJSON_CreateString("humidity"));
           cJSON_AddItemToObject(dht_humidity, "humidity", cJSON_CreateNumber(humidity/valid_readings));
+          cJSON_AddItemToObject(dht_humidity, "id", cJSON_CreateString(mac_addr));
 
           char *dht_temp_msg = cJSON_Print(dht_temperature);
           char *dht_humidity_msg = cJSON_Print(dht_humidity);

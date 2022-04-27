@@ -15,6 +15,7 @@ void exit_example(int status, int sockfd, pthread_t *client_daemon);
 void register_device(struct mqtt_response_publish *published);
 void handle_device_data(struct mqtt_response_publish *published, char *type);
 void *init_menu(void *args);
+int find_device_by_mac(char *mac_addr);
 
 typedef struct Device {
     char id[20];
@@ -128,7 +129,7 @@ void change_status_menu(){
 }
 
 void *init_menu(void *args) {
-    while(!wait_message) {
+    while(wait_message < 2) {
         sleep(1);
     }    
     while(1) {
@@ -179,15 +180,28 @@ void handle_device_data(struct mqtt_response_publish *published, char *type) {
     cJSON *json = cJSON_Parse(message);
 
     float data = cJSON_GetObjectItem(json, type)->valueint;
+    char *mac = cJSON_GetObjectItem(json, "id")->valuestring;
+    int index = find_device_by_mac(mac);
+    if(index == -1) {
+        cJSON_Delete(json);
+        return;
+    }
     if(strcmp(type, "temperature") == 0) {
-        //printf("Temperatura: %.1f ºC\n", data);
-        devices[0].temperature = data;
+        devices[index].temperature = data;
     } else {
-        devices[0].humidity = data;
-        //printf("Umidade: %.1f %%\n", data);
+        devices[index].humidity = data;
     }
 
     cJSON_Delete(json);
+}
+
+int find_device_by_mac(char *mac_addr){
+    for(int i=0; i<devices_size; i++){
+        if(strcmp(mac_addr, devices[i].id) == 0){
+            return i;
+        }
+    }
+    return -1; 
 }
 
 void register_device(struct mqtt_response_publish *published) {
@@ -215,7 +229,7 @@ void register_device(struct mqtt_response_publish *published) {
     strcpy(devices[devices_size].id, device_id->valuestring);
     devices[devices_size].status = status;
     devices_size++;
-    wait_message = 1;
+    wait_message++;
     cJSON_Delete(root);
     free(topic_name);
 }
