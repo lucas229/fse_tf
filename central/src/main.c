@@ -97,7 +97,11 @@ void handle_device_data(struct mqtt_response_publish *published) {
     char message[500];
     strcpy(message, published->application_message);
     message[published->application_message_size] = '\0';
-    printf("Temperatura: %s ºC\n", message);
+    cJSON *json = cJSON_Parse(message);
+    float temperature = cJSON_GetObjectItem(json, "temperature")->valueint;
+    float humidity = cJSON_GetObjectItem(json, "humidity")->valueint;
+    printf("Temperatura: %.1f ºC\n", temperature);
+    printf("Humidade: %.1f %%\n", humidity);
 }
 
 void register_device(struct mqtt_response_publish *published) {
@@ -112,7 +116,6 @@ void register_device(struct mqtt_response_publish *published) {
 
     if(strcmp(item->valuestring, "Cadastro") == 0) {
         cJSON *device_id = cJSON_GetObjectItem(root, "id");
-        printf("ID: %s\n", device_id->valuestring);
         printf("\nNome do cômodo: ");
         scanf(" %[^\n]", room_name);
 

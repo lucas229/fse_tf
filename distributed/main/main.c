@@ -10,6 +10,7 @@
 #include "cJSON.h"
 #include "wifi.h"
 #include "mqtt.h"
+#include "dht11.h"
 
 xSemaphoreHandle conexaoWifiSemaphore;
 xSemaphoreHandle conexaoMQTTSemaphore;
@@ -59,13 +60,40 @@ void trataComunicacaoComServidor(void * params)
       sprintf(topic, "fse2021/180113861/%s/temperatura", room->valuestring);
     }
 
+    DHT11_init(GPIO_NUM_4);
+
+    float temperature = 0, humidity = 0;
+    int count = 0, valid_readings = 0;  
     while(true)
-    {
-        float temperature = 20.0 + (float)rand()/(float)(RAND_MAX/10.0);
-        char message[100]; 
-        sprintf(message, "%f", temperature);
-        mqtt_envia_mensagem(topic, message);
-        vTaskDelay(3000 / portTICK_PERIOD_MS);
+    { 
+        count++;
+        struct dht11_reading dht11_data;
+        dht11_data = DHT11_read();
+
+        if(dht11_data.temperature != -1) {
+          temperature += dht11_data.temperature;
+          humidity += dht11_data.humidity;
+          valid_readings++;
+        }
+
+        if(count == 5){
+
+          cJSON *dht_message = cJSON_CreateObject();
+          cJSON_AddItemToObject(dht_message, "type", cJSON_CreateString("Info"));
+          cJSON_AddItemToObject(dht_message, "temperature", cJSON_CreateNumber(temperature / valid_readings));
+          cJSON_AddItemToObject(dht_message, "humidity", cJSON_CreateNumber(humidity/valid_readings));
+          
+          char *dht_msg = cJSON_Print(dht_message);
+          mqtt_envia_mensagem(topic, dht_msg);
+          free(dht_msg);
+          cJSON_Delete(dht_message);
+
+          temperature = 0;
+          humidity = 0;
+          count = 0;
+          valid_readings = 0;
+        }
+        vTaskDelay(2000 / portTICK_PERIOD_MS);   
     }
   }
 }
