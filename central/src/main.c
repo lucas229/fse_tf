@@ -7,22 +7,38 @@
 #include "posix_sockets.h"
 #include "cJSON.h"
 
+#define MAX_DEVICES 10
+
 void publish_callback(void **unused, struct mqtt_response_publish *published);
 void *client_refresher(void *client);
 void exit_example(int status, int sockfd, pthread_t *client_daemon);
 void register_device(struct mqtt_response_publish *published);
 void handle_device_data(struct mqtt_response_publish *published, char *type);
+void *init_menu(void *args);
 
-const char* addr = "test.mosquitto.org";
-const char* port = "1883";
-int sockfd;
+typedef struct Device {
+    char id[20];
+    int status;
+    float temperature;
+    float humidity;
+} Device;
+
+Device devices[MAX_DEVICES];
+int devices_size = 0;
+
+struct mqtt_client client;
+
 int new_msg = 0;
+int wait_message = 0;
 char room_name[50];
 char msg_topic[50];
 char *msg;
 
 int main()
 {
+    const char* addr = "test.mosquitto.org";
+    const char* port = "1883";
+    int sockfd;
     const char* topic = "fse2021/180113861/dispositivos/+";
 
     sockfd = open_nb_socket(addr, port);
@@ -32,7 +48,6 @@ int main()
         exit_example(EXIT_FAILURE, sockfd, NULL);
     }
 
-    struct mqtt_client client;
     uint8_t sendbuf[2048];
     uint8_t recvbuf[1024];
     mqtt_init(&client, sockfd, sendbuf, sizeof(sendbuf), recvbuf, sizeof(recvbuf), publish_callback);
@@ -53,6 +68,10 @@ int main()
         exit_example(EXIT_FAILURE, sockfd, NULL);
     }
     mqtt_subscribe(&client, topic, 0);
+
+    pthread_t menu_tid;
+    pthread_create(&menu_tid, NULL, init_menu, NULL);
+
     while(1) {
         if(new_msg) {
             mqtt_unsubscribe(&client, topic);
@@ -72,6 +91,57 @@ int main()
     }
     pthread_join(client_daemon, NULL);
     exit_example(EXIT_SUCCESS, sockfd, &client_daemon);
+}
+
+void show_status_menu() {
+    for(int i = 0; i < devices_size; i++) {
+        printf("Dispositivo %d:\n", i + 1);
+        printf("Temperatura: %.1f ºC\n", devices[i].temperature);
+        printf("Umidade: %.1f %%\n", devices[i].humidity);
+        printf("Estado: %d\n\n", devices[i].status);
+    }
+}
+
+void change_status_menu(){
+    for(int i=0; i<devices_size; i++){
+        printf("[%d] Dispositivo %s\n", i+1, devices[i].id);
+    } 
+
+    printf("\nDigite o número do dispositivo que deseja alterar o estado\n");
+    int device_number;
+    scanf("%d", &device_number);
+    
+    char topic[100];
+    sprintf(topic, "fse2021/180113861/dispositivos/%s", devices[device_number-1].id);
+    
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddItemToObject(root, "status", cJSON_CreateNumber(!devices[device_number - 1].status));
+    devices[device_number - 1].status = !devices[device_number - 1].status;
+    char *text = cJSON_Print(root);
+
+    mqtt_unsubscribe(&client, "fse2021/180113861/dispositivos/+");
+    mqtt_publish(&client, topic, text, strlen(text), MQTT_PUBLISH_QOS_0);
+    mqtt_subscribe(&client, "fse2021/180113861/dispositivos/+", 0);
+
+    free(text);
+    cJSON_Delete(root);
+}
+
+void *init_menu(void *args) {
+    while(!wait_message) {
+        sleep(1);
+    }    
+    while(1) {
+        int choice;
+        printf("[1] Ver estados\n");
+        printf("[2] Alterar estados\n");
+        scanf("%d", &choice);
+        if(choice == 1) {
+            show_status_menu();
+        } else if(choice == 2) {
+            change_status_menu();
+        }
+    }
 }
 
 void exit_example(int status, int sockfd, pthread_t *client_daemon)
@@ -110,9 +180,11 @@ void handle_device_data(struct mqtt_response_publish *published, char *type) {
 
     float data = cJSON_GetObjectItem(json, type)->valueint;
     if(strcmp(type, "temperature") == 0) {
-        printf("Temperatura: %.1f ºC\n", data);
+        //printf("Temperatura: %.1f ºC\n", data);
+        devices[0].temperature = data;
     } else {
-        printf("Umidade: %.1f %%\n", data);
+        devices[0].humidity = data;
+        //printf("Umidade: %.1f %%\n", data);
     }
 
     cJSON_Delete(json);
@@ -127,17 +199,23 @@ void register_device(struct mqtt_response_publish *published) {
 
     cJSON *root = cJSON_Parse(published->application_message);
 
-    cJSON *device_id = cJSON_GetObjectItem(root, "id");
     printf("\nNome do cômodo: ");
     scanf(" %[^\n]", room_name);
 
     cJSON *item = cJSON_CreateObject();
     cJSON_AddItemToObject(item, "comodo", cJSON_CreateString(room_name));
-
+    
+    cJSON *device_id = cJSON_GetObjectItem(root, "id");
+    int status = cJSON_GetObjectItem(root, "status")->valueint;
+    
     sprintf(msg_topic, "fse2021/180113861/dispositivos/%s", device_id->valuestring);
     msg = cJSON_Print(item);
     new_msg = 1;
 
+    strcpy(devices[devices_size].id, device_id->valuestring);
+    devices[devices_size].status = status;
+    devices_size++;
+    wait_message = 1;
     cJSON_Delete(root);
     free(topic_name);
 }

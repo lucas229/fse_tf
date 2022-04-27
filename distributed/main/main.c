@@ -28,6 +28,22 @@ void conectadoWifi(void * params)
   }
 }
 
+void waitMessages(void *args) {
+  while(true)
+  {
+    if(xSemaphoreTake(recebeuMensagem, portMAX_DELAY))
+    {
+      char msg[100];
+      obter_mensagem(msg);
+      cJSON *root = cJSON_Parse(msg);
+      int status = cJSON_GetObjectItem(root, "status")->valueint;
+      gpio_set_level(GPIO_NUM_2, status);
+      printf("%s\n", msg);
+      cJSON_Delete(root);
+    }
+  }
+}
+
 void trataComunicacaoComServidor(void * params)
 {
   char *msg;
@@ -48,6 +64,7 @@ void trataComunicacaoComServidor(void * params)
     cJSON *item = cJSON_CreateObject();
     cJSON_AddItemToObject(item, "id", cJSON_CreateString(mac_addr));
     cJSON_AddItemToObject(item, "type", cJSON_CreateString("cadastro"));
+    cJSON_AddItemToObject(item, "status", cJSON_CreateNumber(gpio_get_level(GPIO_NUM_2)));
     msg = cJSON_Print(item);
     mqtt_envia_mensagem(topic, msg);  
     cJSON_Delete(item);
@@ -64,6 +81,8 @@ void trataComunicacaoComServidor(void * params)
       sprintf(status_topic, "fse2021/180113861/%s/estado", room->valuestring);
       sprintf(humidity_topic, "fse2021/180113861/%s/umidade", room->valuestring);
     }
+
+    xTaskCreate(&waitMessages, "Conexão ao MQTT", 4096, NULL, 1, NULL);
 
     DHT11_init(GPIO_NUM_4);
 
@@ -126,6 +145,9 @@ void app_main(void)
     conexaoWifiSemaphore = xSemaphoreCreateBinary();
     conexaoMQTTSemaphore = xSemaphoreCreateBinary();
     wifi_start();
+
+    gpio_reset_pin(GPIO_NUM_2);
+    gpio_set_direction(GPIO_NUM_2, GPIO_MODE_OUTPUT);
 
     xTaskCreate(&conectadoWifi,  "Conexão ao MQTT", 4096, NULL, 1, NULL);
     
