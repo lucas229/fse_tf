@@ -39,7 +39,6 @@ void waitMessages(void *args) {
       cJSON *root = cJSON_Parse(msg);
       int status = cJSON_GetObjectItem(root, "status")->valueint;
       gpio_set_level(GPIO_NUM_2, status);
-      printf("%s\n", msg);
       cJSON_Delete(root);
     }
   }
