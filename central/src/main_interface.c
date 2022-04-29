@@ -19,7 +19,7 @@ char *msg;
 int wait_message = 0;
 
 int sockfd = -1;
-pthread_t menu_tid, client_daemon;
+pthread_t menu_tid, client_daemon, freq_tid;
 
 int init_server() {
     char addr[] = "test.mosquitto.org";
@@ -28,6 +28,7 @@ int init_server() {
     sockfd = open_nb_socket(addr, port);
     init_client(topic);
 
+    pthread_create(&freq_tid, NULL, check_frequence, NULL);
     pthread_create(&menu_tid, NULL, init_menu, NULL);
 
     while(1) {
@@ -80,7 +81,8 @@ void show_status_menu() {
         printf("Dispositivo %d:\n", i + 1);
         printf("Temperatura: %.1f ºC\n", devices[i].temperature);
         printf("Umidade: %.1f %%\n", devices[i].humidity);
-        printf("Estado: %d\n\n", devices[i].status);
+        printf("Estado: %d\n", devices[i].status);
+        printf("Ativo: %d\n\n", devices[i].is_active);
     }
 }
 
@@ -134,8 +136,19 @@ void exit_server() {
     }
     pthread_cancel(client_daemon);
     pthread_cancel(menu_tid);
+    pthread_cancel(freq_tid);
     exit(0);
 }
+
+int find_device_by_mac(char *mac_addr){
+    for(int i=0; i<devices_size; i++){
+        if(strcmp(mac_addr, devices[i].id) == 0) {
+            return i;
+        }
+    }
+    return -1; 
+}
+
 
 void publish_callback(void **unused, struct mqtt_response_publish *published) {
     cJSON *root = cJSON_Parse(published->application_message);
@@ -145,8 +158,10 @@ void publish_callback(void **unused, struct mqtt_response_publish *published) {
     if(strcmp(sender,"distribuido") == 0){
         if(strcmp(type, "cadastro") == 0) {
             register_device(published);
-        } else {
+        } else if(strcmp(type, "frequencia") != 0){
             handle_device_data(published, type);
+        } else {
+            devices[find_device_by_mac(cJSON_GetObjectItem(root,"id")->valuestring)].is_active = 1;
         }
     }
 
@@ -175,22 +190,8 @@ void handle_device_data(struct mqtt_response_publish *published, char *type) {
     cJSON_Delete(json);
 }
 
-int find_device_by_mac(char *mac_addr){
-    for(int i=0; i<devices_size; i++){
-        if(strcmp(mac_addr, devices[i].id) == 0) {
-            return i;
-        }
-    }
-    return -1; 
-}
 
 void register_device(struct mqtt_response_publish *published) {
-    char* topic_name = (char*) malloc(published->topic_name_size + 1);
-    memcpy(topic_name, published->topic_name, published->topic_name_size);
-    topic_name[published->topic_name_size] = '\0';
-
-    printf("Received publish('%s'): %s\n", topic_name, (const char*) published->application_message);
-
     cJSON *root = cJSON_Parse(published->application_message);
 
     printf("\nNome do cômodo: ");
@@ -210,10 +211,33 @@ void register_device(struct mqtt_response_publish *published) {
 
     strcpy(devices[devices_size].id, device_id->valuestring);
     devices[devices_size].status = status;
+    devices[devices_size].is_active = 1;
     devices_size++;
     wait_message++;
     cJSON_Delete(root);
-    free(topic_name);
+}
+
+void *check_frequence(void *args) {
+    char topic[200];
+    cJSON *item = cJSON_CreateObject();
+    cJSON_AddItemToObject(item, "type", cJSON_CreateString("frequencia"));
+    cJSON_AddItemToObject(item, "sender", cJSON_CreateString("central"));
+
+    char *message = cJSON_Print(item);
+    
+    while(1) {
+        for(int i = 0; i < devices_size; i++) {
+            if(devices[i].is_active) {
+                sprintf(topic, "fse2021/180113861/dispositivos/%s", devices[i].id);
+                devices[i].is_active = 0; 
+                mqtt_publish(&client, topic, message, strlen(message), MQTT_PUBLISH_QOS_0);
+            }
+        }
+        sleep(5);
+    }
+
+    free(message);
+    cJSON_Delete(item);
 }
 
 void* client_refresher(void *client) {

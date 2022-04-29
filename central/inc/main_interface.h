@@ -12,6 +12,7 @@ typedef struct Device {
     int status;
     float temperature;
     float humidity;
+    int is_active; 
 } Device;
 
 int init_server();
@@ -24,6 +25,7 @@ void handle_device_data(struct mqtt_response_publish *published, char *type);
 int find_device_by_mac(char *mac_addr);
 void show_status_menu();
 void change_status_menu();
+void *check_frequence(void *args);
 void *init_menu(void *args);
 
 #endif
