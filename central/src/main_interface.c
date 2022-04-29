@@ -26,15 +26,15 @@ int init_server() {
     char port[] = "1883";
     char topic[] = "fse2021/180113861/dispositivos/+";
     sockfd = open_nb_socket(addr, port);
-    init_client("fse2021/180113861/dispositivos/+");
+    init_client(topic);
 
     pthread_create(&menu_tid, NULL, init_menu, NULL);
 
     while(1) {
         if(new_msg) {
-            mqtt_unsubscribe(&client, topic);
+            // mqtt_unsubscribe(&client, topic);
             mqtt_publish(&client, msg_topic, msg, strlen(msg), MQTT_PUBLISH_QOS_0);
-            mqtt_subscribe(&client, topic, 0);
+            // mqtt_subscribe(&client, topic, 0);
             free(msg);
             char new_topic[100];
             sprintf(new_topic, "fse2021/180113861/%s/temperatura", room_name);
@@ -97,13 +97,15 @@ void change_status_menu(){
     sprintf(topic, "fse2021/180113861/dispositivos/%s", devices[device_number-1].id);
     
     cJSON *root = cJSON_CreateObject();
+    cJSON_AddItemToObject(root, "type", cJSON_CreateString("status"));
+    cJSON_AddItemToObject(root, "sender", cJSON_CreateString("central"));
     cJSON_AddItemToObject(root, "status", cJSON_CreateNumber(!devices[device_number - 1].status));
     devices[device_number - 1].status = !devices[device_number - 1].status;
     char *text = cJSON_Print(root);
 
-    mqtt_unsubscribe(&client, "fse2021/180113861/dispositivos/+");
+    // mqtt_unsubscribe(&client, "fse2021/180113861/dispositivos/+");
     mqtt_publish(&client, topic, text, strlen(text), MQTT_PUBLISH_QOS_0);
-    mqtt_subscribe(&client, "fse2021/180113861/dispositivos/+", 0);
+    // mqtt_subscribe(&client, "fse2021/180113861/dispositivos/+", 0);
 
     free(text);
     cJSON_Delete(root);
@@ -138,11 +140,14 @@ void exit_server() {
 void publish_callback(void **unused, struct mqtt_response_publish *published) {
     cJSON *root = cJSON_Parse(published->application_message);
     char *type = cJSON_GetObjectItem(root, "type")->valuestring;
+    char *sender = cJSON_GetObjectItem(root, "sender")->valuestring;
 
-    if(strcmp(type, "cadastro") == 0) {
-        register_device(published);
-    } else {
-        handle_device_data(published, type);
+    if(strcmp(sender,"distribuido") == 0){
+        if(strcmp(type, "cadastro") == 0) {
+            register_device(published);
+        } else {
+            handle_device_data(published, type);
+        }
     }
 
     cJSON_Delete(root);
@@ -192,7 +197,9 @@ void register_device(struct mqtt_response_publish *published) {
     scanf(" %[^\n]", room_name);
 
     cJSON *item = cJSON_CreateObject();
-    cJSON_AddItemToObject(item, "comodo", cJSON_CreateString(room_name));
+    cJSON_AddItemToObject(item, "type", cJSON_CreateString("cadastro"));
+    cJSON_AddItemToObject(item, "sender", cJSON_CreateString("central"));
+    cJSON_AddItemToObject(item, "room", cJSON_CreateString(room_name));
     
     cJSON *device_id = cJSON_GetObjectItem(root, "id");
     int status = cJSON_GetObjectItem(root, "status")->valueint;

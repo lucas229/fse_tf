@@ -39,8 +39,17 @@ void wait_messages(void *args)
             char msg[100];
             obter_mensagem(msg);
             cJSON *root = cJSON_Parse(msg);
-            int status = cJSON_GetObjectItem(root, "status")->valueint;
-            gpio_set_level(GPIO_NUM_2, status);
+
+            char *sender = cJSON_GetObjectItem(root, "sender")->valuestring;
+            if(strcmp(sender, "central") == 0)
+            {
+                char *type = cJSON_GetObjectItem(root, "type")->valuestring;
+                if(strcmp(type, "status") == 0)
+                {
+                    int status = cJSON_GetObjectItem(root, "status")->valueint;
+                    gpio_set_level(GPIO_NUM_2, status);
+                }
+            }
             cJSON_Delete(root);
         }
     }
@@ -65,6 +74,7 @@ void handle_server_communication(void *args)
         cJSON_AddItemToObject(item, "id", cJSON_CreateString(mac_addr));
         cJSON_AddItemToObject(item, "type", cJSON_CreateString("cadastro"));
         cJSON_AddItemToObject(item, "status", cJSON_CreateNumber(gpio_get_level(GPIO_NUM_2)));
+        cJSON_AddItemToObject(item, "sender", cJSON_CreateString("distribuido"));
         msg = cJSON_Print(item);
 		printf("%s\n", msg);
         mqtt_envia_mensagem(topic, msg);  
@@ -77,7 +87,7 @@ void handle_server_communication(void *args)
             char json_message[100];
             obter_mensagem(json_message);
             cJSON *root = cJSON_Parse(json_message);
-            cJSON *room = cJSON_GetObjectItem(root, "comodo");
+            cJSON *room = cJSON_GetObjectItem(root, "room");
 			strcpy(room_name, room->valuestring);
         }
 
@@ -137,6 +147,7 @@ void create_data_json(char **msg, char *type, float data)
     cJSON_AddItemToObject(item, "type", cJSON_CreateString(type));
     cJSON_AddItemToObject(item, type, cJSON_CreateNumber(data));
     cJSON_AddItemToObject(item, "id", cJSON_CreateString(mac_addr));
+    cJSON_AddItemToObject(item, "sender", cJSON_CreateString("distribuido"));
 
     *msg = cJSON_Print(item);
 
