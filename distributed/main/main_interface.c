@@ -66,6 +66,32 @@ void wait_messages(void *args)
     }
 }
 
+void wait_button_press(void *args)
+{
+    gpio_reset_pin(GPIO_NUM_0);
+    gpio_set_direction(GPIO_NUM_0, GPIO_MODE_INPUT);
+
+    int count = 0;
+    while(true)
+    {
+		int status = gpio_get_level(GPIO_NUM_0);
+        if(!status)
+        {
+            count++;
+        }
+        else
+        {
+            count = 0;
+        }
+
+        if(count == 3)
+        {
+            esp_restart();
+        }
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
+    }
+}
+
 void handle_server_communication(void *args)
 {
     char *msg;
@@ -93,15 +119,24 @@ void handle_server_communication(void *args)
 
         mqtt_inscrever(topic);
         message_semaphore = xSemaphoreCreateBinary();
-        if(xSemaphoreTake(message_semaphore, portMAX_DELAY)) {
-            char json_message[100];
-            obter_mensagem(json_message);
-            cJSON *root = cJSON_Parse(json_message);
-            cJSON *room = cJSON_GetObjectItem(root, "room");
-			strcpy(room_name, room->valuestring);
+        while(1) {
+            if(xSemaphoreTake(message_semaphore, portMAX_DELAY)) {
+                char json_message[100];
+                obter_mensagem(json_message);
+                cJSON *root = cJSON_Parse(json_message);
+                char *type = cJSON_GetObjectItem(root, "type")->valuestring;
+                if(strcmp(type, "cadastro") == 0){
+                    char *room = cJSON_GetObjectItem(root, "room")->valuestring;
+                    strcpy(room_name, room);
+                    cJSON_Delete(root);
+                    break;
+                }
+                cJSON_Delete(root);
+            }
         }
 
         xTaskCreate(&wait_messages, "Conexão ao MQTT", 4096, NULL, 1, NULL);
+        xTaskCreate(&wait_button_press, "Acionamento do Botão", 4096, NULL, 1, NULL);
 
 		send_dht_data(room_name);
     }

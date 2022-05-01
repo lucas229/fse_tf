@@ -33,9 +33,7 @@ int init_server() {
 
     while(1) {
         if(new_msg) {
-            // mqtt_unsubscribe(&client, topic);
             mqtt_publish(&client, msg_topic, msg, strlen(msg), MQTT_PUBLISH_QOS_0);
-            // mqtt_subscribe(&client, topic, 0);
             free(msg);
             char new_topic[100];
             sprintf(new_topic, "fse2021/180113861/%s/temperatura", room_name);
@@ -105,9 +103,7 @@ void change_status_menu(){
     devices[device_number - 1].status = !devices[device_number - 1].status;
     char *text = cJSON_Print(root);
 
-    // mqtt_unsubscribe(&client, "fse2021/180113861/dispositivos/+");
     mqtt_publish(&client, topic, text, strlen(text), MQTT_PUBLISH_QOS_0);
-    // mqtt_subscribe(&client, "fse2021/180113861/dispositivos/+", 0);
 
     free(text);
     cJSON_Delete(root);
@@ -227,11 +223,9 @@ void *check_frequence(void *args) {
     
     while(1) {
         for(int i = 0; i < devices_size; i++) {
-            if(devices[i].is_active) {
-                sprintf(topic, "fse2021/180113861/dispositivos/%s", devices[i].id);
-                devices[i].is_active = 0; 
-                mqtt_publish(&client, topic, message, strlen(message), MQTT_PUBLISH_QOS_0);
-            }
+            sprintf(topic, "fse2021/180113861/dispositivos/%s", devices[i].id);
+            devices[i].is_active = 0; 
+            mqtt_publish(&client, topic, message, strlen(message), MQTT_PUBLISH_QOS_0);
         }
         sleep(5);
     }
