@@ -31,14 +31,14 @@ void register_device(char *room_name, char* device_id, char *device_name, int es
 void handle_device_data(struct mqtt_response_publish *published, char *type);
 int find_device_by_mac(char *mac_addr);
 void print_device(char* mac_addr);
-void show_status_menu();
-void change_status_menu();
 void *check_frequence(void *args);
 void *init_menu(void *args);
 void menu_register();
 void room_menu();
 int room_selection_menu(); 
+void change_status(Device *dev);
 void new_room_menu();
 int find_room_by_name(char *room_name);
+void device_menu(Device *dev);
 
 #endif

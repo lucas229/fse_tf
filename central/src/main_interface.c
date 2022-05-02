@@ -82,7 +82,7 @@ void *init_menu(void *args) {
         printw("Menu inicial\n\n");
         printw("[1] Cadastrar dispositivo\n");
         printw("[2] Gerenciar cômodos\n");
-        printw("[q] Finalizar\n");
+        printw("\n[q] Finalizar\n");
 
         int command = getch();
         if(command != ERR) {
@@ -100,43 +100,80 @@ void *init_menu(void *args) {
 }
 
 void room_menu(){
-    int room;
-    do {
-        room = room_selection_menu();
-        if(room == -1) {
-            return;
-        }    
-    } while(room == -2);
-    
-    int count = 0;
-    Device list[MAX_DEVICES];
-    for(int i = 0; i < devices_size; i++) {
-        if(devices[i].room == room) {
-            list[count++] = devices[i];
+    while(1){
+        int room;
+        do {
+            room = room_selection_menu();
+            if(room == -1) {
+                return;
+            }    
+        } while(room == -2);
+        
+        int count = 0;
+        Device *list[MAX_DEVICES];
+        for(int i = 0; i < devices_size; i++) {
+            if(devices[i].room == room) {
+                list[count++] = &devices[i];
+            }
         }
+        while(1) {
+            erase();
+            printw("Cômodo: %s\n\n", rooms[room]);
+            if(count == 0) {
+                printw("Não há dispositivos nesse cômodo\n\n");
+            }
+            for(int i = 0; i < count; i++) {
+                printw("[%d] %s\n", i, list[i]->name);
+            }
+
+            printw("\n[q] Voltar\n");
+
+            int command = getch();
+            if(command != ERR) {
+                if(command - '0' >= 0 && command  - '0' < count) {
+                    device_menu(list[command - '0']);
+                } else if(command == 'q') {
+                    break; 
+                }
+            }
+            refresh();
+        }
+        erase();
     }
+}
+
+void device_menu(Device *dev) {
+    start_color();
+    use_default_colors();
+    init_pair(1, COLOR_GREEN, -1);
+    init_pair(2, COLOR_RED, -1);
+
     while(1) {
         erase();
-        printw("Cômodo: %s\n\n", rooms[room]);
-        if(count == 0) {
-            printw("Não há dispositivos nesse cômodo\n\n");
+        if(dev->status) {
+            attron(COLOR_PAIR(1));
+            printw("Estado atual: Ligado\n");
+        } else {
+            attron(COLOR_PAIR(2));
+            printw("Estado atual: Desligado\n");
         }
-        for(int i = 0; i < count; i++) {
-            printw("[%d] %s\n", i, list[i].name);
-        }
-
+        attroff(COLOR_PAIR(1));
+        attroff(COLOR_PAIR(2));
+        print_device(dev->id);
+        printw("\n[a] Ligar/Desligar dipositivo\n");
+        printw("[r] Remover dispositivo\n");
         printw("[q] Voltar\n");
-
         int command = getch();
         if(command != ERR) {
-            if(command - '0' >= 0 && command  - '0' < count) {
-
+            if(command == 'a') {
+                change_status(dev);
             } else if(command == 'q') {
-                return; 
+                break; 
             }
         }
         refresh();
     }
+    erase();
 }
 
 int room_selection_menu() {
@@ -147,7 +184,8 @@ int room_selection_menu() {
         for(int i = 0; i < rooms_size; i++) {
             printw("[%d] %s\n", i, rooms[i]);
         }
-        printw("[n] Novo cômodo");
+        printw("\n[n] Novo cômodo\n");
+        printw("[q] Voltar\n");
         refresh();
         choice = getch();
         if(choice != ERR) {
@@ -182,20 +220,6 @@ void new_room_menu() {
     timeout(1000);
 }
 
-void show_status_menu() {
-    while(1) {
-        erase();
-        for(int i = 0; i < devices_size; i++) {
-            printw("[%d] %s\n", i + 1, devices[i].id);
-            // printw("Temperatura: %.1f ºC\n", devices[i].temperature);
-            // printw("Umidade: %.1f %%\n", devices[i].humidity);
-            // printw("Estado: %d\n", devices[i].status);
-            // printw("Ativo: %d\n\n", devices[i].is_active);
-        }
-        refresh();
-    }
-}
-
 void menu_register() {   
     int choice; 
 
@@ -206,12 +230,13 @@ void menu_register() {
         for(int i = 0; i < queue_size; i++) {
             if(find_device_by_mac(devices_queue[i]) == -1) {
                 count++;
-                printw("[%d] %s\n", i, devices_queue[i]);
+                printw("[%d] MAC: %s\n", i, devices_queue[i]);
             }
         }
         if(count == 0){
-            printw("Não há dispositivos aguardando cadastro");
+            printw("Não há dispositivos aguardando cadastro.\n");
         }
+        printw("\n[q] Voltar\n");
         choice = getch();
         if(choice == 'q') {
             return;
@@ -292,6 +317,7 @@ void register_device(char *room_name, char* device_id, char *device_name, int es
 
     strcpy(devices[devices_size].id, device_id);
     devices[devices_size].status = 0;
+    devices[devices_size].room = find_room_by_name(room_name);
     strcpy(devices[devices_size].name, device_name);
     devices[devices_size].mode = esp_mode;
     devices[devices_size].is_active = 1;
@@ -299,23 +325,16 @@ void register_device(char *room_name, char* device_id, char *device_name, int es
 }
 
 
-void change_status_menu(){
-    for(int i=0; i<devices_size; i++){
-        printf("[%d] Dispositivo %s\n", i+1, devices[i].id);
-    } 
-
-    printf("\nDigite o número do dispositivo que deseja alterar o estado\n");
-    int device_number;
-    scanf("%d", &device_number);
-    
+void change_status(Device *dev){
     char topic[100];
-    sprintf(topic, "fse2021/180113861/dispositivos/%s", devices[device_number-1].id);
+
+    sprintf(topic, "fse2021/180113861/dispositivos/%s", dev->id);
     
     cJSON *root = cJSON_CreateObject();
     cJSON_AddItemToObject(root, "type", cJSON_CreateString("status"));
     cJSON_AddItemToObject(root, "sender", cJSON_CreateString("central"));
-    cJSON_AddItemToObject(root, "status", cJSON_CreateNumber(!devices[device_number - 1].status));
-    devices[device_number - 1].status = !devices[device_number - 1].status;
+    cJSON_AddItemToObject(root, "status", cJSON_CreateNumber(!dev->status));
+    dev->status = !dev->status;
     char *text = cJSON_Print(root);
 
     mqtt_publish(&client, topic, text, strlen(text), MQTT_PUBLISH_QOS_0);
