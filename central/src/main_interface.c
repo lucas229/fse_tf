@@ -44,7 +44,6 @@ void exit_server() {
     exit(0);
 }
 
-
 void init_client(const char *topic) {
     if(sockfd == -1) {
         perror("Failed to open socket: ");
@@ -119,6 +118,11 @@ void room_menu(){
         while(1) {
             erase();
             printw("Cômodo: %s\n\n", rooms[room]);
+            float temperature = find_data(room, 't'), humidity = find_data(room, 'h');
+            if(temperature > 0) {
+                printw("Temperatura: %.1f ºC\n", temperature);
+                printw("Umidade: %.1f %%\n\n", humidity);
+            }
             if(count == 0) {
                 printw("Não há dispositivos nesse cômodo\n\n");
             }
@@ -143,6 +147,7 @@ void room_menu(){
 }
 
 void device_menu(Device *dev) {
+    
     start_color();
     use_default_colors();
     init_pair(1, COLOR_GREEN, -1);
@@ -371,6 +376,28 @@ int find_room_by_name(char *room_name){
         }
     }
     return -1; 
+}
+
+float find_data(int room, char type) {
+    float data = 0;
+    int count = 0;
+    for(int i = 0; i < devices_size; i++) {
+        if(devices[i].room == room && devices[i].mode == ENERGY_ID) {
+            if(devices[i].temperature == 0) {
+                continue;
+            }
+            if(type == 't') {
+                data += devices[i].temperature;
+            } else if(type == 'h') {
+                data += devices[i].humidity;
+            }
+            count++;
+        }
+    }
+    if(count == 0){
+        return 0;
+    }
+    return data/count; 
 }
 
 void publish_callback(void **unused, struct mqtt_response_publish *published) {

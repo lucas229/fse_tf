@@ -40,5 +40,6 @@ void change_status(Device *dev);
 void new_room_menu();
 int find_room_by_name(char *room_name);
 void device_menu(Device *dev);
+float find_data(int room, char type);
 
 #endif
