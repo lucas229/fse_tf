@@ -10,6 +10,8 @@
 Device devices[MAX_DEVICES];
 int devices_size = 0;
 
+char rooms[MAX_ROOMS][50];
+int rooms_size = 0;
 char devices_queue[MAX_DEVICES][20];
 int queue_size = 0;
 
@@ -30,6 +32,18 @@ void init_server() {
     pthread_join(freq_tid, NULL);
     pthread_join(menu_tid, NULL);
 }
+
+void exit_server() {
+    if(sockfd != -1) {
+        close(sockfd);
+    }
+    pthread_cancel(client_daemon);
+    pthread_cancel(menu_tid);
+    pthread_cancel(freq_tid);
+    endwin();
+    exit(0);
+}
+
 
 void init_client(const char *topic) {
     if(sockfd == -1) {
@@ -57,16 +71,180 @@ void init_client(const char *topic) {
     mqtt_subscribe(&client, topic, 0);
 }
 
-void show_status_menu() {
-    for(int i = 0; i < devices_size; i++) {
+void *init_menu(void *args) {
+    initscr();
+    curs_set(0);
+    noecho();
+    timeout(1000);
 
-        printw("Dispositivo %d:\n", i + 1);
-        // printw("Temperatura: %.1f ºC\n", devices[i].temperature);
-        // printw("Umidade: %.1f %%\n", devices[i].humidity);
-        // printw("Estado: %d\n", devices[i].status);
-        // printw("Ativo: %d\n\n", devices[i].is_active);
+    while(1) {
+        erase();
+        printw("[0] Gerenciar dispostivos\n");
+        printw("[1] Cadastrar dispositivo\n");
+        printw("[2] Cadastrar cômodo\n");
+
+        int command = getch();
+        if(command != ERR) {
+            if(command == '0') {
+                show_status_menu();
+            }
+            else if(command == '1') {
+                menu_register();
+            } else if(command == '2') {
+                room_menu();
+            } else if(command == 'q') {
+                break;
+            }
+        }
+        refresh();
+    }
+    return NULL;
+}
+
+int room_menu() {
+    int choice = -1;
+    while(1) {
+        erase();
+        for(int i = 0; i < rooms_size; i++) {
+            printw("[%d] %s\n", i, rooms[i]);
+        }
+        printw("[n] Novo cômodo");
+        refresh();
+        choice = getch();
+        if(choice != ERR) {
+            if(choice == 'n') {
+                new_room_menu();
+                return rooms_size - 1;
+            } else if(choice == 'q') {
+                return -1;
+            } else if(choice - '0' < rooms_size){
+                break;
+            }
+        }
+    }
+    return choice - '0';
+}
+
+void new_room_menu() {
+    timeout(-1);
+    erase();
+    echo();
+    curs_set(1);
+    printw("Nome do cômodo: ");
+    char room_name[25];
+    getstr(room_name);
+    if(find_room_by_name(room_name) == -1){
+        strcpy(rooms[rooms_size++], room_name);
+    }
+    noecho();
+    curs_set(0);
+    refresh();
+    timeout(1000);
+}
+
+void show_status_menu() {
+    while(1) {
+        erase();
+        for(int i = 0; i < devices_size; i++) {
+            printw("[%d] %s\n", i + 1, devices[i].id);
+            // printw("Temperatura: %.1f ºC\n", devices[i].temperature);
+            // printw("Umidade: %.1f %%\n", devices[i].humidity);
+            // printw("Estado: %d\n", devices[i].status);
+            // printw("Ativo: %d\n\n", devices[i].is_active);
+        }
+        refresh();
     }
 }
+
+void menu_register() {   
+    int choice; 
+
+    while(1) {
+        erase();
+        int count = 0;
+        for(int i = 0; i < queue_size; i++) {
+            if(find_device_by_mac(devices_queue[i]) == -1) {
+                count++;
+                printw("[%d] %s\n", i, devices_queue[i]);
+            }
+        }
+        if(count == 0){
+            printw("Não há dispositivos aguardando cadastro");
+        }
+        choice = getch();
+        if(choice == 'q') {
+            return;
+        } else if(choice >= '0' && choice <= '9' && choice - '0' < queue_size) {
+            if(find_device_by_mac(devices_queue[choice - '0']) == -1) {
+                break;
+            }
+        }
+        refresh();
+    }
+    int room_id = room_menu();    
+    if(room_id == -1){
+        return; 
+    }
+    timeout(-1);
+    erase();
+    refresh();
+    echo();
+    curs_set(1);
+    printw("Nome do dispositivo: ");
+    char device_name[25];
+    getstr(device_name);
+
+    noecho();
+    curs_set(0);
+    erase();
+    int esp_mode;
+    while(1) {
+        printw("[%d] Energia\n", ENERGY_ID);
+        printw("[%d] Bateria\n", BATTERY_ID);
+        refresh();
+        esp_mode = getch() - '0';
+        if(esp_mode == ENERGY_ID || esp_mode == BATTERY_ID) {
+            break;
+        }
+    }
+
+    register_device(rooms[room_id], devices_queue[choice - '0'], esp_mode);
+
+    erase();
+    refresh();
+    timeout(1000);
+}
+
+void register_device(char *room_name, char* device_id, int esp_mode) {
+    char *msg;
+    char msg_topic[50];
+    char new_topic[100];
+
+    cJSON *item = cJSON_CreateObject();
+    cJSON_AddItemToObject(item, "type", cJSON_CreateString("cadastro"));
+    cJSON_AddItemToObject(item, "sender", cJSON_CreateString("central"));
+    cJSON_AddItemToObject(item, "room", cJSON_CreateString(room_name));
+    cJSON_AddItemToObject(item, "mode", cJSON_CreateNumber(esp_mode));
+
+    sprintf(msg_topic, "fse2021/180113861/dispositivos/%s", device_id);
+    msg = cJSON_Print(item);
+
+    mqtt_publish(&client, msg_topic, msg, strlen(msg), MQTT_PUBLISH_QOS_0);
+    free(msg);
+    
+    sprintf(new_topic, "fse2021/180113861/%s/temperatura", room_name);
+    mqtt_subscribe(&client, new_topic, 0);
+    sprintf(new_topic, "fse2021/180113861/%s/umidade", room_name);
+    mqtt_subscribe(&client, new_topic, 0);
+    sprintf(new_topic, "fse2021/180113861/%s/estado", room_name);
+    mqtt_subscribe(&client, new_topic, 0);
+
+    strcpy(devices[devices_size].id, device_id);
+    devices[devices_size].status = 0;
+    devices[devices_size].is_active = 1;
+    devices_size++;
+}
+
 
 void change_status_menu(){
     for(int i=0; i<devices_size; i++){
@@ -93,47 +271,7 @@ void change_status_menu(){
     cJSON_Delete(root);
 }
 
-void *init_menu(void *args) {
-    initscr();
 
-    curs_set(0);
-    noecho();
-    timeout(1000);
-
-    while(1) {
-        erase();
-
-        printw("[0] Gerenciar dispostivos\n");
-        printw("[1] Cadastrar dispositivo\n");
-
-        int command = getch();
-        if(command != ERR) {
-            if(command == '0') {
-                show_status_menu();
-            }
-            else if(command == '1') {
-                menu_register();
-            } else if(command == 'q') {
-                break;
-            }
-        }
-
-        refresh();
-        
-    }
-    return NULL;
-}
-
-void exit_server() {
-    if(sockfd != -1) {
-        close(sockfd);
-    }
-    pthread_cancel(client_daemon);
-    pthread_cancel(menu_tid);
-    pthread_cancel(freq_tid);
-    endwin();
-    exit(0);
-}
 
 int find_device_by_mac(char *mac_addr){
     for(int i=0; i<devices_size; i++){
@@ -144,6 +282,14 @@ int find_device_by_mac(char *mac_addr){
     return -1; 
 }
 
+int find_room_by_name(char *room_name){
+    for(int i=0; i<rooms_size; i++){
+        if(strcmp(room_name, rooms[i]) == 0) {
+            return i;
+        }
+    }
+    return -1; 
+}
 
 void publish_callback(void **unused, struct mqtt_response_publish *published) {
     cJSON *root = cJSON_Parse(published->application_message);
@@ -185,48 +331,6 @@ void handle_device_data(struct mqtt_response_publish *published, char *type) {
     cJSON_Delete(json);
 }
 
-void menu_register() {   
-    int choice; 
-
-    while(1) {
-        erase();
-        int count = 0;
-        for(int i = 0; i < queue_size; i++) {
-            if(find_device_by_mac(devices_queue[i]) == -1) {
-                count++;
-                printw("[%d] %s", i, devices_queue[i]);
-            }
-        }
-        if(count == 0){
-          printw("Não há dispositivos aguardando cadastro");
-        }
-        choice = getch();
-        if(choice == 'q') {
-            return;
-        } else if(choice >= '0' && choice <= '9') {
-            break;
-        }
-        refresh();
-    }
-
-    timeout(-1);
-
-    erase();
-    refresh();
-    echo();
-    curs_set(1);
-    printw("Nome do cômodo: ");
-    char room_name[50];
-    getstr(room_name);
-    
-    noecho();
-    curs_set(0);
-    register_device(room_name, devices_queue[choice - '0']);
-
-    erase();
-    refresh();
-    timeout(1000);
-}
 
 void handle_register_request(struct mqtt_response_publish *published){
     cJSON *root = cJSON_Parse(published->application_message);
@@ -235,36 +339,6 @@ void handle_register_request(struct mqtt_response_publish *published){
     strcpy(devices_queue[queue_size++], device_mac);
     cJSON_Delete(root);
 }   
-
-
-void register_device(char *room_name, char* device_id) {
-    char *msg;
-    char msg_topic[50];
-    char new_topic[100];
-
-    cJSON *item = cJSON_CreateObject();
-    cJSON_AddItemToObject(item, "type", cJSON_CreateString("cadastro"));
-    cJSON_AddItemToObject(item, "sender", cJSON_CreateString("central"));
-    cJSON_AddItemToObject(item, "room", cJSON_CreateString(room_name));
-
-    sprintf(msg_topic, "fse2021/180113861/dispositivos/%s", device_id);
-    msg = cJSON_Print(item);
-
-    mqtt_publish(&client, msg_topic, msg, strlen(msg), MQTT_PUBLISH_QOS_0);
-    free(msg);
-    
-    sprintf(new_topic, "fse2021/180113861/%s/temperatura", room_name);
-    mqtt_subscribe(&client, new_topic, 0);
-    sprintf(new_topic, "fse2021/180113861/%s/umidade", room_name);
-    mqtt_subscribe(&client, new_topic, 0);
-    sprintf(new_topic, "fse2021/180113861/%s/estado", room_name);
-    mqtt_subscribe(&client, new_topic, 0);
-
-    strcpy(devices[devices_size].id, device_id);
-    devices[devices_size].status = 0;
-    devices[devices_size].is_active = 1;
-    devices_size++;
-}
 
 void *check_frequence(void *args) {
     char topic[200];

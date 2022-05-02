@@ -6,10 +6,16 @@
 #include "mqtt.h"
 
 #define MAX_DEVICES 10
+#define MAX_ROOMS 10
+#define ENERGY_ID 0
+#define BATTERY_ID 1
 
 typedef struct Device {
     char id[20];
+    char name[50];
     int status;
+    int room; 
+    int mode;
     float temperature;
     float humidity;
     int is_active; 
@@ -21,7 +27,7 @@ void exit_server();
 void publish_callback(void **unused, struct mqtt_response_publish *published);
 void *client_refresher(void *client);
 void handle_register_request(struct mqtt_response_publish *published);
-void register_device(char *room_name, char* device_id);
+void register_device(char *room_name, char* device_id, int esp_mode);
 void handle_device_data(struct mqtt_response_publish *published, char *type);
 int find_device_by_mac(char *mac_addr);
 void show_status_menu();
@@ -29,5 +35,8 @@ void change_status_menu();
 void *check_frequence(void *args);
 void *init_menu(void *args);
 void menu_register();
+int room_menu();
+void new_room_menu();
+int find_room_by_name(char *room_name);
 
 #endif
