@@ -1,5 +1,5 @@
 CC = gcc
-LDFLAGS = -pthread
+LDFLAGS = -pthread -lncurses
 BLDDIR = .
 INCDIR = $(BLDDIR)/inc
 SRCDIR = $(BLDDIR)/src
@@ -12,7 +12,7 @@ EXE = bin/bin
 all: clean $(EXE)
 
 $(EXE): $(OBJ)
-	$(CC) $(LDFLAGS) $(OBJDIR)/*.o -o $@
+	$(CC) $(OBJDIR)/*.o -o $@ $(LDFLAGS)
 
 $(OBJDIR)/%.o : $(SRCDIR)/%.c
 	@mkdir -p $(@D)

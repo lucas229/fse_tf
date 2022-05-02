@@ -1,6 +1,7 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <ncurses.h>
 
 #include "posix_sockets.h"
 #include "cJSON.h"
@@ -9,19 +10,14 @@
 Device devices[MAX_DEVICES];
 int devices_size = 0;
 
+char devices_queue[MAX_DEVICES][20];
+int queue_size = 0;
+
 struct mqtt_client client;
-
-int new_msg = 0;
-char room_name[50];
-char msg_topic[50];
-char *msg;
-
-int wait_message = 0;
-
 int sockfd = -1;
 pthread_t menu_tid, client_daemon, freq_tid;
 
-int init_server() {
+void init_server() {
     char addr[] = "test.mosquitto.org";
     char port[] = "1883";
     char topic[] = "fse2021/180113861/dispositivos/+";
@@ -31,21 +27,8 @@ int init_server() {
     pthread_create(&freq_tid, NULL, check_frequence, NULL);
     pthread_create(&menu_tid, NULL, init_menu, NULL);
 
-    while(1) {
-        if(new_msg) {
-            mqtt_publish(&client, msg_topic, msg, strlen(msg), MQTT_PUBLISH_QOS_0);
-            free(msg);
-            char new_topic[100];
-            sprintf(new_topic, "fse2021/180113861/%s/temperatura", room_name);
-            mqtt_subscribe(&client, new_topic, 0);
-            sprintf(new_topic, "fse2021/180113861/%s/umidade", room_name);
-            mqtt_subscribe(&client, new_topic, 0);
-            sprintf(new_topic, "fse2021/180113861/%s/estado", room_name);
-            mqtt_subscribe(&client, new_topic, 0);
-            new_msg = 0;
-        }
-        usleep(100000);
-    }
+    pthread_join(freq_tid, NULL);
+    pthread_join(menu_tid, NULL);
 }
 
 void init_client(const char *topic) {
@@ -76,11 +59,12 @@ void init_client(const char *topic) {
 
 void show_status_menu() {
     for(int i = 0; i < devices_size; i++) {
-        printf("Dispositivo %d:\n", i + 1);
-        printf("Temperatura: %.1f ºC\n", devices[i].temperature);
-        printf("Umidade: %.1f %%\n", devices[i].humidity);
-        printf("Estado: %d\n", devices[i].status);
-        printf("Ativo: %d\n\n", devices[i].is_active);
+
+        printw("Dispositivo %d:\n", i + 1);
+        // printw("Temperatura: %.1f ºC\n", devices[i].temperature);
+        // printw("Umidade: %.1f %%\n", devices[i].humidity);
+        // printw("Estado: %d\n", devices[i].status);
+        // printw("Ativo: %d\n\n", devices[i].is_active);
     }
 }
 
@@ -110,20 +94,34 @@ void change_status_menu(){
 }
 
 void *init_menu(void *args) {
-    while(wait_message < 2) {
-        sleep(1);
-    }    
+    initscr();
+
+    curs_set(0);
+    noecho();
+    timeout(1000);
+
     while(1) {
-        int choice;
-        printf("[1] Ver estados\n");
-        printf("[2] Alterar estados\n");
-        scanf("%d", &choice);
-        if(choice == 1) {
-            show_status_menu();
-        } else if(choice == 2) {
-            change_status_menu();
+        erase();
+
+        printw("[0] Gerenciar dispostivos\n");
+        printw("[1] Cadastrar dispositivo\n");
+
+        int command = getch();
+        if(command != ERR) {
+            if(command == '0') {
+                show_status_menu();
+            }
+            else if(command == '1') {
+                menu_register();
+            } else if(command == 'q') {
+                break;
+            }
         }
+
+        refresh();
+        
     }
+    return NULL;
 }
 
 void exit_server() {
@@ -133,6 +131,7 @@ void exit_server() {
     pthread_cancel(client_daemon);
     pthread_cancel(menu_tid);
     pthread_cancel(freq_tid);
+    endwin();
     exit(0);
 }
 
@@ -153,7 +152,7 @@ void publish_callback(void **unused, struct mqtt_response_publish *published) {
 
     if(strcmp(sender,"distribuido") == 0){
         if(strcmp(type, "cadastro") == 0) {
-            register_device(published);
+            handle_register_request(published);
         } else if(strcmp(type, "frequencia") != 0){
             handle_device_data(published, type);
         } else {
@@ -186,31 +185,85 @@ void handle_device_data(struct mqtt_response_publish *published, char *type) {
     cJSON_Delete(json);
 }
 
+void menu_register() {   
+    int choice; 
 
-void register_device(struct mqtt_response_publish *published) {
+    while(1) {
+        erase();
+        int count = 0;
+        for(int i = 0; i < queue_size; i++) {
+            if(find_device_by_mac(devices_queue[i]) == -1) {
+                count++;
+                printw("[%d] %s", i, devices_queue[i]);
+            }
+        }
+        if(count == 0){
+          printw("Não há dispositivos aguardando cadastro");
+        }
+        choice = getch();
+        if(choice == 'q') {
+            return;
+        } else if(choice >= '0' && choice <= '9') {
+            break;
+        }
+        refresh();
+    }
+
+    timeout(-1);
+
+    erase();
+    refresh();
+    echo();
+    curs_set(1);
+    printw("Nome do cômodo: ");
+    char room_name[50];
+    getstr(room_name);
+    
+    noecho();
+    curs_set(0);
+    register_device(room_name, devices_queue[choice - '0']);
+
+    erase();
+    refresh();
+    timeout(1000);
+}
+
+void handle_register_request(struct mqtt_response_publish *published){
     cJSON *root = cJSON_Parse(published->application_message);
+    char* device_mac = cJSON_GetObjectItem(root, "id")->valuestring;
 
-    printf("\nNome do cômodo: ");
-    scanf(" %[^\n]", room_name);
+    strcpy(devices_queue[queue_size++], device_mac);
+    cJSON_Delete(root);
+}   
+
+
+void register_device(char *room_name, char* device_id) {
+    char *msg;
+    char msg_topic[50];
+    char new_topic[100];
 
     cJSON *item = cJSON_CreateObject();
     cJSON_AddItemToObject(item, "type", cJSON_CreateString("cadastro"));
     cJSON_AddItemToObject(item, "sender", cJSON_CreateString("central"));
     cJSON_AddItemToObject(item, "room", cJSON_CreateString(room_name));
-    
-    cJSON *device_id = cJSON_GetObjectItem(root, "id");
-    int status = cJSON_GetObjectItem(root, "status")->valueint;
-    
-    sprintf(msg_topic, "fse2021/180113861/dispositivos/%s", device_id->valuestring);
-    msg = cJSON_Print(item);
-    new_msg = 1;
 
-    strcpy(devices[devices_size].id, device_id->valuestring);
-    devices[devices_size].status = status;
+    sprintf(msg_topic, "fse2021/180113861/dispositivos/%s", device_id);
+    msg = cJSON_Print(item);
+
+    mqtt_publish(&client, msg_topic, msg, strlen(msg), MQTT_PUBLISH_QOS_0);
+    free(msg);
+    
+    sprintf(new_topic, "fse2021/180113861/%s/temperatura", room_name);
+    mqtt_subscribe(&client, new_topic, 0);
+    sprintf(new_topic, "fse2021/180113861/%s/umidade", room_name);
+    mqtt_subscribe(&client, new_topic, 0);
+    sprintf(new_topic, "fse2021/180113861/%s/estado", room_name);
+    mqtt_subscribe(&client, new_topic, 0);
+
+    strcpy(devices[devices_size].id, device_id);
+    devices[devices_size].status = 0;
     devices[devices_size].is_active = 1;
     devices_size++;
-    wait_message++;
-    cJSON_Delete(root);
 }
 
 void *check_frequence(void *args) {
