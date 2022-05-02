@@ -34,13 +34,13 @@ void init_server() {
 }
 
 void exit_server() {
+    endwin();
     if(sockfd != -1) {
         close(sockfd);
     }
     pthread_cancel(client_daemon);
     pthread_cancel(menu_tid);
     pthread_cancel(freq_tid);
-    endwin();
     exit(0);
 }
 
@@ -79,21 +79,19 @@ void *init_menu(void *args) {
 
     while(1) {
         erase();
-        printw("[0] Gerenciar dispostivos\n");
+        printw("Menu inicial\n\n");
         printw("[1] Cadastrar dispositivo\n");
-        printw("[2] Cadastrar cômodo\n");
+        printw("[2] Gerenciar cômodos\n");
+        printw("[q] Finalizar\n");
 
         int command = getch();
         if(command != ERR) {
-            if(command == '0') {
-                show_status_menu();
-            }
-            else if(command == '1') {
+            if(command == '1') {
                 menu_register();
             } else if(command == '2') {
                 room_menu();
             } else if(command == 'q') {
-                break;
+                exit_server();
             }
         }
         refresh();
@@ -101,10 +99,51 @@ void *init_menu(void *args) {
     return NULL;
 }
 
-int room_menu() {
+void room_menu(){
+    int room;
+    do {
+        room = room_selection_menu();
+        if(room == -1) {
+            return;
+        }    
+    } while(room == -2);
+    
+    int count = 0;
+    Device list[MAX_DEVICES];
+    for(int i = 0; i < devices_size; i++) {
+        if(devices[i].room == room) {
+            list[count++] = devices[i];
+        }
+    }
+    while(1) {
+        erase();
+        printw("Cômodo: %s\n\n", rooms[room]);
+        if(count == 0) {
+            printw("Não há dispositivos nesse cômodo\n\n");
+        }
+        for(int i = 0; i < count; i++) {
+            printw("[%d] %s\n", i, list[i].name);
+        }
+
+        printw("[q] Voltar\n");
+
+        int command = getch();
+        if(command != ERR) {
+            if(command - '0' >= 0 && command  - '0' < count) {
+
+            } else if(command == 'q') {
+                return; 
+            }
+        }
+        refresh();
+    }
+}
+
+int room_selection_menu() {
     int choice = -1;
     while(1) {
         erase();
+        printw("Selecione um cômodo:\n\n");
         for(int i = 0; i < rooms_size; i++) {
             printw("[%d] %s\n", i, rooms[i]);
         }
@@ -114,7 +153,7 @@ int room_menu() {
         if(choice != ERR) {
             if(choice == 'n') {
                 new_room_menu();
-                return rooms_size - 1;
+                return -2;
             } else if(choice == 'q') {
                 return -1;
             } else if(choice - '0' < rooms_size){
@@ -130,6 +169,7 @@ void new_room_menu() {
     erase();
     echo();
     curs_set(1);
+    printw("Cadastrando novo cômodo...\n\n");
     printw("Nome do cômodo: ");
     char room_name[25];
     getstr(room_name);
@@ -162,6 +202,7 @@ void menu_register() {
     while(1) {
         erase();
         int count = 0;
+        printw("Selecione um dispositivo para cadastrar:\n\n");
         for(int i = 0; i < queue_size; i++) {
             if(find_device_by_mac(devices_queue[i]) == -1) {
                 count++;
@@ -181,15 +222,18 @@ void menu_register() {
         }
         refresh();
     }
-    int room_id = room_menu();    
+    int room_id = room_selection_menu();    
     if(room_id == -1){
         return; 
+    } else if(room_id == -2){
+        room_id = rooms_size - 1;
     }
     timeout(-1);
     erase();
     refresh();
     echo();
     curs_set(1);
+    printw("Cadastrando dispositivo...\n\n");
     printw("Nome do dispositivo: ");
     char device_name[25];
     getstr(device_name);
@@ -199,23 +243,30 @@ void menu_register() {
     erase();
     int esp_mode;
     while(1) {
+        erase();
+        printw("Selecione o modo de operação do dispositivo:\n\n");
         printw("[%d] Energia\n", ENERGY_ID);
         printw("[%d] Bateria\n", BATTERY_ID);
         refresh();
         esp_mode = getch() - '0';
         if(esp_mode == ENERGY_ID || esp_mode == BATTERY_ID) {
             break;
-        }
+        } 
     }
 
-    register_device(rooms[room_id], devices_queue[choice - '0'], esp_mode);
-
+    register_device(rooms[room_id], devices_queue[choice - '0'], device_name, esp_mode);
+    
     erase();
+    printw("Dispositivo cadastrado com sucesso\n\n");
+    print_device(devices[devices_size - 1].id);
+    printw("\nAperte qualquer tecla para continuar...\n");
+    getch();
+
     refresh();
     timeout(1000);
 }
 
-void register_device(char *room_name, char* device_id, int esp_mode) {
+void register_device(char *room_name, char* device_id, char *device_name, int esp_mode) {
     char *msg;
     char msg_topic[50];
     char new_topic[100];
@@ -241,6 +292,8 @@ void register_device(char *room_name, char* device_id, int esp_mode) {
 
     strcpy(devices[devices_size].id, device_id);
     devices[devices_size].status = 0;
+    strcpy(devices[devices_size].name, device_name);
+    devices[devices_size].mode = esp_mode;
     devices[devices_size].is_active = 1;
     devices_size++;
 }
@@ -271,7 +324,17 @@ void change_status_menu(){
     cJSON_Delete(root);
 }
 
-
+void print_device(char* mac_addr){
+    int i = find_device_by_mac(mac_addr);
+    printw("MAC: %s\n", devices[i].id);
+    printw("Dispositivo: %s\n", devices[i].name);
+    if(devices[i].mode == ENERGY_ID){
+        printw("Tipo: Energia\n");
+    } else if(devices[i].mode == BATTERY_ID){
+        printw("Tipo: Bateria\n");
+    }
+    printw("Cômodo: %s\n", rooms[devices[i].room]);
+}
 
 int find_device_by_mac(char *mac_addr){
     for(int i=0; i<devices_size; i++){
