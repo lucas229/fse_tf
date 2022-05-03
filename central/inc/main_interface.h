@@ -7,8 +7,8 @@
 
 #define MAX_DEVICES 10
 #define MAX_ROOMS 10
-#define ENERGY_ID 0
-#define BATTERY_ID 1
+#define ENERGY_ID 1
+#define BATTERY_ID 0
 
 typedef struct Device {
     char id[20];
@@ -45,5 +45,6 @@ void device_menu(Device *dev);
 float find_data(int room, char type);
 void handle_remove_device(char *mac_addr);
 void remove_device(int index);
+void request_mode(char *topic);
 
 #endif

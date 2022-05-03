@@ -51,6 +51,18 @@ void wait_messages(void *args)
                 {
                     int status = cJSON_GetObjectItem(root, "status")->valueint;
                     gpio_set_level(GPIO_NUM_2, status);
+                } else if(strcmp(type, "mode") == 0){
+                    cJSON *json = cJSON_CreateObject();
+                    char esp_topic[100];
+                    sprintf(esp_topic, "fse2021/180113861/dispositivos/%s",mac_addr);
+                    cJSON_AddItemToObject(json, "sender", cJSON_CreateString("distribuido"));
+                    cJSON_AddItemToObject(json, "type", cJSON_CreateString("mode"));
+                    cJSON_AddItemToObject(json, "id", cJSON_CreateString(mac_addr));
+                    cJSON_AddItemToObject(json, "mode", cJSON_CreateNumber(OPERATION_MODE));
+                    char *text = cJSON_Print(json);
+                    mqtt_envia_mensagem(esp_topic, text);
+                    free(text);
+                    cJSON_Delete(json);
                 } else if(strcmp(type, "frequencia") == 0) {
                     cJSON *json = cJSON_CreateObject();
                     char esp_topic[100];

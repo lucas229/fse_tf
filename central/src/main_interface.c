@@ -263,7 +263,7 @@ void menu_register() {
         }
         refresh();
     }
-
+    
     Device new_device;
     strcpy(new_device.id, devices_queue[choice - '0']);
     new_device.room = room_selection_menu();
@@ -307,27 +307,18 @@ void menu_register() {
     refresh();
     new_device.is_dimmable = getchar() - '0';
 
-    clear();
-    while(1) {
-        clear();
-        printw("Cadastrando dispositivo...\n\n");
-        printw("Selecione o modo de operação do dispositivo:\n");
-        printw("[%d] Bateria\n", BATTERY_ID);
-        printw("[%d] Energia\n", ENERGY_ID);
-        refresh();
-        new_device.mode = getch() - '0';
-        if(new_device.mode == ENERGY_ID || new_device.mode == BATTERY_ID) {
-            break;
-        } 
-    }
-
     register_device(new_device);
     for(int i = choice - '0'; i < queue_size - 1; i++) {
         strcpy(devices_queue[i], devices_queue[i + 1]);
     }
     queue_size--;
     
-    erase();
+    clear();
+    printw("O dispositivo está sendo cadastrado...\n");
+    refresh();
+    sleep(2);
+
+    clear();
     printw("Dispositivo cadastrado com sucesso\n\n");
     print_device(devices[devices_size - 1].id);
     printw("\nAperte qualquer tecla para continuar...\n");
@@ -363,6 +354,18 @@ void register_device(Device new_device) {
     new_device.status = 0;
 
     devices[devices_size++] = new_device;
+
+    request_mode(msg_topic);
+}
+
+void request_mode(char *topic) {
+    cJSON *json = cJSON_CreateObject();
+    cJSON_AddItemToObject(json, "type", cJSON_CreateString("mode"));
+    cJSON_AddItemToObject(json, "sender", cJSON_CreateString("central"));
+    char *request = cJSON_Print(json);
+    mqtt_publish(&client, topic, request, strlen(request), MQTT_PUBLISH_QOS_0);
+    free(request);
+    cJSON_Delete(json);
 }
 
 void change_status(Device *dev){
@@ -446,6 +449,8 @@ void publish_callback(void **unused, struct mqtt_response_publish *published) {
     if(strcmp(sender,"distribuido") == 0){
         if(strcmp(type, "cadastro") == 0) {
             handle_register_request(published);
+        } else if(strcmp(type, "mode") == 0) {
+            devices[find_device_by_mac(cJSON_GetObjectItem(root, "id")->valuestring)].mode = cJSON_GetObjectItem(root, "mode")->valueint;
         } else if(strcmp(type, "frequencia") != 0){
             handle_device_data(published, type);
         } else {
