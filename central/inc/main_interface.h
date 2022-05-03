@@ -41,5 +41,7 @@ void new_room_menu();
 int find_room_by_name(char *room_name);
 void device_menu(Device *dev);
 float find_data(int room, char type);
+void handle_remove_device(char *mac_addr);
+void remove_device(int index);
 
 #endif

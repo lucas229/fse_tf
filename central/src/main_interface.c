@@ -125,6 +125,8 @@ void room_menu(){
             }
             if(count == 0) {
                 printw("Não há dispositivos nesse cômodo\n\n");
+            } else {
+                printw("Dispositivos:\n");
             }
             for(int i = 0; i < count; i++) {
                 printw("[%d] %s\n", i, list[i]->name);
@@ -136,6 +138,12 @@ void room_menu(){
             if(command != ERR) {
                 if(command - '0' >= 0 && command  - '0' < count) {
                     device_menu(list[command - '0']);
+                    count = 0;
+                    for(int i = 0; i < devices_size; i++) {
+                        if(devices[i].room == room) {
+                            list[count++] = &devices[i];
+                        }
+                    }
                 } else if(command == 'q') {
                     break; 
                 }
@@ -172,7 +180,11 @@ void device_menu(Device *dev) {
         if(command != ERR) {
             if(command == 'a') {
                 change_status(dev);
-            } else if(command == 'q') {
+            } else if(command == 'r'){
+                handle_remove_device(dev->id);
+                break;
+            }
+            else if(command == 'q') {
                 break; 
             }
         }
@@ -463,7 +475,7 @@ void *check_frequence(void *args) {
             devices[i].is_active = 0; 
             mqtt_publish(&client, topic, message, strlen(message), MQTT_PUBLISH_QOS_0);
         }
-        sleep(5);
+        sleep(30);
     }
 
     free(message);
@@ -476,4 +488,28 @@ void* client_refresher(void *client) {
         usleep(100000U);
     }
     return NULL;
+}
+
+void handle_remove_device(char *mac_addr) {
+    char topic[100];
+    int index = find_device_by_mac(mac_addr);
+    sprintf(topic, "fse2021/180113861/dispositivos/%s", mac_addr);
+
+    cJSON *json = cJSON_CreateObject();
+    cJSON_AddItemToObject(json, "type", cJSON_CreateString("remove"));
+    cJSON_AddItemToObject(json, "sender", cJSON_CreateString("central"));
+    char *message = cJSON_Print(json);
+    mqtt_publish(&client, topic, message, strlen(message), MQTT_PUBLISH_QOS_0);
+    
+    cJSON_Delete(json);
+    free(message);
+
+    remove_device(index);
+}
+
+void remove_device(int index) {
+    for(int i = index; i < devices_size - 1; i++) {
+        devices[i] = devices[i + 1];
+    }
+    devices_size--;
 }

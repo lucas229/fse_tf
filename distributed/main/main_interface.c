@@ -16,7 +16,10 @@
 xSemaphoreHandle wifi_connection_semaphore;
 xSemaphoreHandle mqtt_connection_semaphore;
 xSemaphoreHandle message_semaphore;
+xSemaphoreHandle reconnect_semaphore;
+
 char mac_addr[50]; 
+TaskHandle_t *const wifi_task, server_task; 
 
 void wifi_connect(void *args)
 {
@@ -59,6 +62,13 @@ void wait_messages(void *args)
                     mqtt_envia_mensagem(esp_topic, text);
                     free(text);
                     cJSON_Delete(json);
+                } else if(strcmp(type, "remove") == 0) {
+                    vTaskDelete(wifi_task);
+                    vTaskDelete(server_task);
+                    reconnect_semaphore = xSemaphoreCreateBinary();
+                    if(xSemaphoreTake(reconnect_semaphore, portMAX_DELAY)) {
+                        esp_restart();
+                    }
                 }
             }
             cJSON_Delete(root);
@@ -86,7 +96,8 @@ void wait_button_press(void *args)
 
         if(count == 3)
         {
-            esp_restart();
+            xSemaphoreGive(reconnect_semaphore);
+            
         }
         vTaskDelay(1000 / portTICK_PERIOD_MS);
     }
@@ -217,7 +228,7 @@ void init_server()
     gpio_reset_pin(GPIO_NUM_2);
     gpio_set_direction(GPIO_NUM_2, GPIO_MODE_OUTPUT);
 
-    xTaskCreate(&wifi_connect,  "Conexão ao MQTT", 4096, NULL, 1, NULL);
+    xTaskCreate(&wifi_connect,  "Conexão ao MQTT", 4096, NULL, 1, wifi_task);
     
-    xTaskCreate(&handle_server_communication, "Comunicação com Broker", 4096, NULL, 1, NULL);
+    xTaskCreate(&handle_server_communication, "Comunicação com Broker", 4096, NULL, 1, server_task);
 }
