@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <string.h>
+#include "cJSON.h"
 #include "nvs_flash.h"
 #include "esp_wifi.h"
 #include "esp_event.h"
@@ -7,7 +8,6 @@
 #include "esp_log.h"
 #include "freertos/semphr.h"
 #include "esp_mac.h"
-#include "cJSON.h"
 #include "wifi.h"
 #include "mqtt.h"
 #include "dht11.h"
@@ -220,6 +220,8 @@ void init_server()
         ret = nvs_flash_init();
     }
     ESP_ERROR_CHECK(ret);
+
+    ESP_LOGI("MODO", "%d", OPERATION_MODE);
 
     wifi_connection_semaphore = xSemaphoreCreateBinary();
     mqtt_connection_semaphore = xSemaphoreCreateBinary();
