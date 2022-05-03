@@ -129,7 +129,7 @@ void room_menu(){
                 printw("Dispositivos:\n");
             }
             for(int i = 0; i < count; i++) {
-                printw("[%d] %s\n", i, list[i]->name);
+                printw("[%d] %s / %s\n", i, list[i]->input, list[i]->output);
             }
 
             printw("\n[q] Voltar\n");
@@ -201,7 +201,10 @@ int room_selection_menu() {
         for(int i = 0; i < rooms_size; i++) {
             printw("[%d] %s\n", i, rooms[i]);
         }
-        printw("\n[n] Novo cômodo\n");
+        if(rooms_size > 0) {
+            printw("\n");
+        }
+        printw("[n] Novo cômodo\n");
         printw("[q] Voltar\n");
         refresh();
         choice = getch();
@@ -238,19 +241,15 @@ void new_room_menu() {
 }
 
 void menu_register() {   
-    int choice; 
+    int choice;
 
     while(1) {
         erase();
-        int count = 0;
         printw("Selecione um dispositivo para cadastrar:\n\n");
-        for(int i = 0; i < queue_size; i++) {
-            if(find_device_by_mac(devices_queue[i]) == -1) {
-                count++;
-                printw("[%d] MAC: %s\n", i, devices_queue[i]);
-            }
+        for(int i = 0; i < queue_size; i++) {            
+            printw("[%d] MAC: %s\n", i, devices_queue[i]);
         }
-        if(count == 0){
+        if(queue_size == 0){
             printw("Não há dispositivos aguardando cadastro.\n");
         }
         printw("\n[q] Voltar\n");
@@ -264,39 +263,69 @@ void menu_register() {
         }
         refresh();
     }
-    int room_id = room_selection_menu();    
-    if(room_id == -1){
-        return; 
-    } else if(room_id == -2){
-        room_id = rooms_size - 1;
+
+    Device new_device;
+    strcpy(new_device.id, devices_queue[choice - '0']);
+    new_device.room = room_selection_menu();
+    if(new_device.room == -1){
+        return;
+    } else if(new_device.room == -2){
+        new_device.room = rooms_size - 1;
     }
+
     timeout(-1);
-    erase();
-    refresh();
     echo();
     curs_set(1);
+
+    clear();
     printw("Cadastrando dispositivo...\n\n");
-    printw("Nome do dispositivo: ");
-    char device_name[25];
-    getstr(device_name);
+    char input_device_name[25], output_device_name[25];
+    printw("Nome do dispositivo de entrada: ");
+    refresh();
+    getstr(input_device_name);
+    strcpy(new_device.input, input_device_name);
+
+    clear();
+    printw("Cadastrando dispositivo...\n\n");
+    printw("Nome do dispositivo de saída: ");
+    refresh();
+    getstr(output_device_name);
+    strcpy(new_device.output, output_device_name);
 
     noecho();
     curs_set(0);
-    erase();
-    int esp_mode;
+
+    clear();
+    printw("Cadastrando dispositivo...\n\n");
+    printw("A entrada aciona alarme?\n[1] Sim\n[0] Não\n");
+    refresh();
+    new_device.trigger_alarm = getchar() - '0';
+
+    clear();
+    printw("Cadastrando dispositivo...\n\n");
+    printw("A saída é dimerizável?\n[1] Sim\n[0] Não\n");
+    refresh();
+    new_device.is_dimmable = getchar() - '0';
+
+    clear();
     while(1) {
-        erase();
-        printw("Selecione o modo de operação do dispositivo:\n\n");
-        printw("[%d] Energia\n", ENERGY_ID);
+        clear();
+        printw("Cadastrando dispositivo...\n\n");
+        printw("Selecione o modo de operação do dispositivo:\n");
         printw("[%d] Bateria\n", BATTERY_ID);
+        printw("[%d] Energia\n", ENERGY_ID);
         refresh();
-        esp_mode = getch() - '0';
-        if(esp_mode == ENERGY_ID || esp_mode == BATTERY_ID) {
+        new_device.mode = getch() - '0';
+        if(new_device.mode == ENERGY_ID || new_device.mode == BATTERY_ID) {
             break;
         } 
     }
 
-    register_device(rooms[room_id], devices_queue[choice - '0'], device_name, esp_mode);
+    register_device(new_device);
+    for(int i = choice - '0'; i < queue_size - 1; i++) {
+        strcpy(devices_queue[i], devices_queue[i + 1]);
+    }
+    queue_size--;
     
     erase();
     printw("Dispositivo cadastrado com sucesso\n\n");
@@ -308,39 +337,33 @@ void menu_register() {
     timeout(1000);
 }
 
-void register_device(char *room_name, char* device_id, char *device_name, int esp_mode) {
+void register_device(Device new_device) {
     char *msg;
-    char msg_topic[50];
+    char msg_topic[100];
     char new_topic[100];
 
     cJSON *item = cJSON_CreateObject();
     cJSON_AddItemToObject(item, "type", cJSON_CreateString("cadastro"));
     cJSON_AddItemToObject(item, "sender", cJSON_CreateString("central"));
-    cJSON_AddItemToObject(item, "room", cJSON_CreateString(room_name));
-    cJSON_AddItemToObject(item, "mode", cJSON_CreateNumber(esp_mode));
+    cJSON_AddItemToObject(item, "room", cJSON_CreateString(rooms[new_device.room]));
 
-    sprintf(msg_topic, "fse2021/180113861/dispositivos/%s", device_id);
+    sprintf(msg_topic, "fse2021/180113861/dispositivos/%s", new_device.id);
     msg = cJSON_Print(item);
 
     mqtt_publish(&client, msg_topic, msg, strlen(msg), MQTT_PUBLISH_QOS_0);
     free(msg);
     
-    sprintf(new_topic, "fse2021/180113861/%s/temperatura", room_name);
+    sprintf(new_topic, "fse2021/180113861/%s/temperatura", rooms[new_device.room]);
     mqtt_subscribe(&client, new_topic, 0);
-    sprintf(new_topic, "fse2021/180113861/%s/umidade", room_name);
+    sprintf(new_topic, "fse2021/180113861/%s/umidade", rooms[new_device.room]);
     mqtt_subscribe(&client, new_topic, 0);
-    sprintf(new_topic, "fse2021/180113861/%s/estado", room_name);
+    sprintf(new_topic, "fse2021/180113861/%s/estado", rooms[new_device.room]);
     mqtt_subscribe(&client, new_topic, 0);
 
-    strcpy(devices[devices_size].id, device_id);
-    devices[devices_size].status = 0;
-    devices[devices_size].room = find_room_by_name(room_name);
-    strcpy(devices[devices_size].name, device_name);
-    devices[devices_size].mode = esp_mode;
-    devices[devices_size].is_active = 1;
-    devices_size++;
+    new_device.status = 0;
+
+    devices[devices_size++] = new_device;
 }
-
 
 void change_status(Device *dev){
     char topic[100];
@@ -363,7 +386,10 @@ void change_status(Device *dev){
 void print_device(char* mac_addr){
     int i = find_device_by_mac(mac_addr);
     printw("MAC: %s\n", devices[i].id);
-    printw("Dispositivo: %s\n", devices[i].name);
+    printw("Entrada: %s\n", devices[i].input);
+    printw("Saída: %s\n", devices[i].output);
+    printw("Aciona alarme: %d\n", devices[i].trigger_alarm);
+    printw("Dimerizável: %d\n", devices[i].is_dimmable);
     if(devices[i].mode == ENERGY_ID){
         printw("Tipo: Energia\n");
     } else if(devices[i].mode == BATTERY_ID){
@@ -475,7 +501,7 @@ void *check_frequence(void *args) {
             devices[i].is_active = 0; 
             mqtt_publish(&client, topic, message, strlen(message), MQTT_PUBLISH_QOS_0);
         }
-        sleep(30);
+        sleep(10);
     }
 
     free(message);

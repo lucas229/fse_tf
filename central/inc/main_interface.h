@@ -12,13 +12,15 @@
 
 typedef struct Device {
     char id[20];
-    char name[50];
+    char input[50], output[50];
     int status;
     int room; 
     int mode;
     float temperature;
     float humidity;
     int is_active; 
+    int trigger_alarm;
+    int is_dimmable;
 } Device;
 
 void init_server();
@@ -27,7 +29,7 @@ void exit_server();
 void publish_callback(void **unused, struct mqtt_response_publish *published);
 void *client_refresher(void *client);
 void handle_register_request(struct mqtt_response_publish *published);
-void register_device(char *room_name, char* device_id, char *device_name, int esp_mode);
+void register_device(Device new_device);
 void handle_device_data(struct mqtt_response_publish *published, char *type);
 int find_device_by_mac(char *mac_addr);
 void print_device(char* mac_addr);
