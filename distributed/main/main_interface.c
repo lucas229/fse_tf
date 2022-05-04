@@ -17,9 +17,10 @@
 xSemaphoreHandle wifi_connection_semaphore;
 xSemaphoreHandle mqtt_connection_semaphore;
 xSemaphoreHandle message_semaphore;
-xSemaphoreHandle reconnect_semaphore;
 
 char mac_addr[50]; 
+char esp_topic[100];
+
 TaskHandle_t *const wifi_task, server_task; 
 
 void wifi_connect(void *args)
@@ -41,10 +42,12 @@ void wait_messages(void *args)
         if(xSemaphoreTake(message_semaphore, portMAX_DELAY))
         {
             char msg[100];
-            obter_mensagem(msg);
+            get_message(msg);
             cJSON *root = cJSON_Parse(msg);
 
             char *sender = cJSON_GetObjectItem(root, "sender")->valuestring;
+            sprintf(esp_topic, "fse2021/180113861/dispositivos/%s",mac_addr);
+
             if(strcmp(sender, "central") == 0)
             {
                 char *type = cJSON_GetObjectItem(root, "type")->valuestring;
@@ -55,36 +58,29 @@ void wait_messages(void *args)
                 } else if(strcmp(type, "mode") == 0)
                 {
                     cJSON *json = cJSON_CreateObject();
-                    char esp_topic[100];
-                    sprintf(esp_topic, "fse2021/180113861/dispositivos/%s",mac_addr);
                     cJSON_AddItemToObject(json, "sender", cJSON_CreateString("distribuido"));
                     cJSON_AddItemToObject(json, "type", cJSON_CreateString("mode"));
                     cJSON_AddItemToObject(json, "id", cJSON_CreateString(mac_addr));
                     cJSON_AddItemToObject(json, "mode", cJSON_CreateNumber(OPERATION_MODE));
                     char *text = cJSON_Print(json);
-                    mqtt_envia_mensagem(esp_topic, text);
+                    mqtt_send_message(esp_topic, text);
                     free(text);
                     cJSON_Delete(json);
                 } else if(strcmp(type, "frequencia") == 0) 
                 {
                     cJSON *json = cJSON_CreateObject();
-                    char esp_topic[100];
-                    sprintf(esp_topic, "fse2021/180113861/dispositivos/%s",mac_addr);
                     cJSON_AddItemToObject(json, "sender", cJSON_CreateString("distribuido"));
                     cJSON_AddItemToObject(json, "type", cJSON_CreateString("frequencia"));
                     cJSON_AddItemToObject(json, "id", cJSON_CreateString(mac_addr));
                     char *text = cJSON_Print(json);
-                    mqtt_envia_mensagem(esp_topic, text);
+                    mqtt_send_message(esp_topic, text);
                     free(text);
                     cJSON_Delete(json);
-                } else if(strcmp(type, "remove") == 0) 
+                }
+                else if(strcmp(type, "remover") == 0)
                 {
-                    vTaskDelete(wifi_task);
-                    vTaskDelete(server_task);
-                    reconnect_semaphore = xSemaphoreCreateBinary();
-                    if(xSemaphoreTake(reconnect_semaphore, portMAX_DELAY)) {
-                        esp_restart();
-                    }
+                    erase_nvs();
+                    esp_restart();
                 }
             }
             cJSON_Delete(root);
@@ -112,7 +108,18 @@ void wait_button_press(void *args)
 
         if(count == 3)
         {
-            xSemaphoreGive(reconnect_semaphore);
+            cJSON *json = cJSON_CreateObject();
+            cJSON_AddItemToObject(json, "type", cJSON_CreateString("remover"));
+            cJSON_AddItemToObject(json, "sender", cJSON_CreateString("distribuido"));
+            cJSON_AddItemToObject(json, "id", cJSON_CreateString(mac_addr));
+
+            char *text = cJSON_Print(json);
+            mqtt_send_message(esp_topic, text);
+            free(text);
+            cJSON_Delete(json);
+
+            erase_nvs();
+            esp_restart();
         }
         vTaskDelay(1000 / portTICK_PERIOD_MS);
     }
@@ -145,12 +152,12 @@ void handle_server_communication(void *args)
             cJSON_AddItemToObject(root, "sender", cJSON_CreateString("distribuido"));
             char *text = cJSON_Print(root);
             
-            mqtt_envia_mensagem(topic, text);
+            mqtt_send_message(topic, text);
             strcpy(room_name, cJSON_GetObjectItem(root, "room")->valuestring);
 
             free(text);
             cJSON_Delete(root);
-            mqtt_inscrever(topic);
+            mqtt_subscribe(topic);
         }
         else 
         {
@@ -161,17 +168,17 @@ void handle_server_communication(void *args)
             cJSON_AddItemToObject(item, "status", cJSON_CreateNumber(gpio_get_level(GPIO_NUM_2)));
             cJSON_AddItemToObject(item, "sender", cJSON_CreateString("distribuido"));
             msg = cJSON_Print(item);
-            mqtt_envia_mensagem(topic, msg);  
+            mqtt_send_message(topic, msg);  
             cJSON_Delete(item);
             free(msg);
 
-            mqtt_inscrever(topic);
+            mqtt_subscribe(topic);
             while(1) 
             {
                 if(xSemaphoreTake(message_semaphore, portMAX_DELAY)) 
                 {
                     char json_message[1000];
-                    obter_mensagem(json_message);
+                    get_message(json_message);
                     cJSON *root = cJSON_Parse(json_message);
                     char *type = cJSON_GetObjectItem(root, "type")->valuestring;
                     if(strcmp(type, "cadastro") == 0){
@@ -226,8 +233,8 @@ void send_dht_data(char *room_name)
 			create_data_json(&dht_temp_msg, "temperature", temperature/valid_readings);
 			create_data_json(&dht_humidity_msg, "humidity", humidity/valid_readings);
 
-            mqtt_envia_mensagem(temperature_topic, dht_temp_msg);
-            mqtt_envia_mensagem(humidity_topic, dht_humidity_msg);
+            mqtt_send_message(temperature_topic, dht_temp_msg);
+            mqtt_send_message(humidity_topic, dht_humidity_msg);
 
             free(dht_temp_msg);
             free(dht_humidity_msg);

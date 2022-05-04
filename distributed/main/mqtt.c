@@ -79,16 +79,16 @@ void mqtt_start()
     esp_mqtt_client_start(client);
 }
 
-void mqtt_envia_mensagem(char * topico, char * mensagem)
+void mqtt_send_message(char * topic, char * message)
 {
-    int message_id = esp_mqtt_client_publish(client, topico, mensagem, 0, 1, 0);
+    int message_id = esp_mqtt_client_publish(client, topic, message, 0, 1, 0);
     ESP_LOGI(TAG, "Mesnagem enviada, ID: %d", message_id);
 }
 
-void mqtt_inscrever(char *topico) {
-    esp_mqtt_client_subscribe(client, topico, 0);
+void mqtt_subscribe(char *topic) {
+    esp_mqtt_client_subscribe(client, topic, 0);
 }
 
-void obter_mensagem(char *mensagem) {
-    strcpy(mensagem, msg);
+void get_message(char *message) {
+    strcpy(message, msg);
 }

@@ -3,8 +3,8 @@
 
 void mqtt_start();
 
-void mqtt_envia_mensagem(char * topico, char * mensagem);
-void mqtt_inscrever();
-void obter_mensagem(char *mensagem);
+void mqtt_send_message(char * topic, char * message);
+void mqtt_subscribe();
+void get_message(char *message);
 
 #endif

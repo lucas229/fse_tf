@@ -19,7 +19,7 @@ int read_nvs(char *data)
     
     if(res_nvs == ESP_ERR_NVS_NOT_FOUND)
     {
-        ESP_LOGE("NVS", "Namespace: armazenamento, não encontrado");
+        ESP_LOGI("NVS", "Namespace: armazenamento, não encontrado");
     }
     else
     {
@@ -31,10 +31,10 @@ int read_nvs(char *data)
         case ESP_OK:
             return 1;    
         case ESP_ERR_NOT_FOUND:
-            ESP_LOGE("NVS", "Valor não encontrado");
+            ESP_LOGI("NVS", "Valor não encontrado");
             return 0;
         default:
-            ESP_LOGE("NVS", "Erro ao acessar o NVS (%s)", esp_err_to_name(res));
+            ESP_LOGI("NVS", "Erro ao acessar o NVS (%s)", esp_err_to_name(res));
             return 0;
         }
 
@@ -53,15 +53,25 @@ void write_nvs(char *data)
     
     if(res_nvs == ESP_ERR_NVS_NOT_FOUND)
     {
-        ESP_LOGE("NVS", "Namespace: armazenamento, não encontrado");
+        ESP_LOGI("NVS", "Namespace: armazenamento, não encontrado");
     }
   
     esp_err_t res = nvs_set_str(default_partition_handle, "configs", data);
 
     if(res != ESP_OK)
     {
-        ESP_LOGE("NVS", "Não foi possível escrever no NVS (%s)", esp_err_to_name(res));
+        ESP_LOGI("NVS", "Não foi possível escrever no NVS (%s)", esp_err_to_name(res));
     }
     nvs_commit(default_partition_handle);
     nvs_close(default_partition_handle);
+}
+
+void erase_nvs(){
+    ESP_ERROR_CHECK(nvs_flash_init());
+
+    nvs_handle default_partition_handle;
+
+    nvs_open("storage", NVS_READWRITE, &default_partition_handle);
+
+    nvs_erase_all(default_partition_handle);
 }

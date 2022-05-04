@@ -3,5 +3,6 @@
 
 int read_nvs();
 void write_nvs(char* data);
+void erase_nvs();
 
 #endif

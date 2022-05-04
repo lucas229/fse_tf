@@ -457,6 +457,8 @@ void publish_callback(void **unused, struct mqtt_response_publish *published) {
             devices[find_device_by_mac(cJSON_GetObjectItem(root, "id")->valuestring)].mode = cJSON_GetObjectItem(root, "mode")->valueint;
         } else if(strcmp(type, "reconectar") == 0) {
             handle_reconnect_request(published);
+        } else if(strcmp(type, "remover") == 0) {
+            remove_device(find_device_by_mac(cJSON_GetObjectItem(root, "id")->valuestring));
         } else if(strcmp(type, "frequencia") != 0){
             handle_device_data(published, type);
         } else {
@@ -552,7 +554,7 @@ void handle_remove_device(char *mac_addr) {
     sprintf(topic, "fse2021/180113861/dispositivos/%s", mac_addr);
 
     cJSON *json = cJSON_CreateObject();
-    cJSON_AddItemToObject(json, "type", cJSON_CreateString("remove"));
+    cJSON_AddItemToObject(json, "type", cJSON_CreateString("remover"));
     cJSON_AddItemToObject(json, "sender", cJSON_CreateString("central"));
     char *message = cJSON_Print(json);
     mqtt_publish(&client, topic, message, strlen(message), MQTT_PUBLISH_QOS_0);
