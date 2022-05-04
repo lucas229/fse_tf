@@ -110,11 +110,6 @@ void room_menu(){
         
         int count = 0;
         Device *list[MAX_DEVICES];
-        for(int i = 0; i < devices_size; i++) {
-            if(devices[i].room == room) {
-                list[count++] = &devices[i];
-            }
-        }
         while(1) {
             erase();
             printw("Cômodo: %s\n\n", rooms[room]);
@@ -123,6 +118,14 @@ void room_menu(){
                 printw("Temperatura: %.1f ºC\n", temperature);
                 printw("Umidade: %.1f %%\n\n", humidity);
             }
+            
+            count = 0;
+            for(int i = 0; i < devices_size; i++) {
+                if(devices[i].room == room) {
+                    list[count++] = &devices[i];
+                }
+            }
+
             if(count == 0) {
                 printw("Não há dispositivos nesse cômodo\n\n");
             } else {
@@ -133,17 +136,10 @@ void room_menu(){
             }
 
             printw("\n[q] Voltar\n");
-
             int command = getch();
             if(command != ERR) {
                 if(command - '0' >= 0 && command  - '0' < count) {
                     device_menu(list[command - '0']);
-                    count = 0;
-                    for(int i = 0; i < devices_size; i++) {
-                        if(devices[i].room == room) {
-                            list[count++] = &devices[i];
-                        }
-                    }
                 } else if(command == 'q') {
                     break; 
                 }
@@ -459,6 +455,8 @@ void publish_callback(void **unused, struct mqtt_response_publish *published) {
             handle_reconnect_request(published);
         } else if(strcmp(type, "remover") == 0) {
             remove_device(find_device_by_mac(cJSON_GetObjectItem(root, "id")->valuestring));
+        } else if(strcmp(type, "status") == 0) {
+            devices[find_device_by_mac(cJSON_GetObjectItem(root, "id")->valuestring)].status = cJSON_GetObjectItem(root, "status")->valueint;
         } else if(strcmp(type, "frequencia") != 0){
             handle_device_data(published, type);
         } else {
