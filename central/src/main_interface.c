@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <ncurses.h>
+#include <ctype.h>
 
 #include "posix_sockets.h"
 #include "cJSON.h"
@@ -150,6 +151,30 @@ void room_menu(){
     }
 }
 
+int dimmable_menu(){
+    timeout(-1);
+    clear();
+    echo();
+    curs_set(1);
+
+    printw("Intensidade do acionamento: ");
+    refresh();
+    char num[5];
+    getstr(num);
+    int number = atoi(num);
+    if(number > 255){
+        number = 255;
+    }
+    else if(number < 0){
+        number == 0;
+    }
+    timeout(1000);
+    clear();
+    noecho();
+    curs_set(0);
+    return number; 
+}
+
 void device_menu(Device *dev) {
     
     start_color();
@@ -175,6 +200,11 @@ void device_menu(Device *dev) {
         int command = getch();
         if(command != ERR) {
             if(command == 'a') {
+                if(dev->is_dimmable) {
+                    dev->status = dimmable_menu();      
+                } else {
+                    dev->status = !dev->status;
+                }
                 change_status(dev);
             } else if(command == 'r'){
                 handle_remove_device(dev->id);
@@ -376,8 +406,8 @@ void change_status(Device *dev){
     cJSON *root = cJSON_CreateObject();
     cJSON_AddItemToObject(root, "type", cJSON_CreateString("status"));
     cJSON_AddItemToObject(root, "sender", cJSON_CreateString("central"));
-    cJSON_AddItemToObject(root, "status", cJSON_CreateNumber(!dev->status));
-    dev->status = !dev->status;
+    cJSON_AddItemToObject(root, "status", cJSON_CreateNumber(dev->status));
+    
     char *text = cJSON_Print(root);
 
     mqtt_publish(&client, topic, text, strlen(text), MQTT_PUBLISH_QOS_0);

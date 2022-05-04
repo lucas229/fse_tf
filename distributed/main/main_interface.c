@@ -13,6 +13,7 @@
 #include "dht11.h"
 #include "main_interface.h"
 #include "storage.h"
+#include "pwm.h"
 
 xSemaphoreHandle wifi_connection_semaphore;
 xSemaphoreHandle mqtt_connection_semaphore;
@@ -22,7 +23,9 @@ char mac_addr[50];
 char esp_topic[100];
 char room_name[50];
 int input_status = 0;
-int connected = true; 
+bool is_dimmable = true;
+int connected = false; 
+int last_intensity = 50;
 
 TaskHandle_t *const wifi_task, server_task; 
 
@@ -43,7 +46,7 @@ void wait_messages(void *args)
     {
         if(xSemaphoreTake(message_semaphore, portMAX_DELAY))
         {
-            char msg[100];
+            char msg[500];
             get_message(msg);
             cJSON *root = cJSON_Parse(msg);
 
@@ -56,7 +59,17 @@ void wait_messages(void *args)
                 if(strcmp(type, "status") == 0)
                 {
                     input_status = cJSON_GetObjectItem(root, "status")->valueint;
-                    gpio_set_level(GPIO_NUM_2, input_status);
+                    if(input_status) {
+                        last_intensity = input_status;
+                    }
+                    if(is_dimmable)
+                    {
+                        set_pwm(input_status);
+                    }
+                    else
+                    {
+                        gpio_set_level(GPIO_NUM_2, input_status);
+                    }
                 } 
                 else if(strcmp(type, "mode") == 0)
                 {
@@ -88,24 +101,17 @@ void wait_messages(void *args)
                 }
                 else if(strcmp(type, "cadastro") == 0)
                 {
-                    char json_message[1000];
-                    get_message(json_message);
-                    cJSON *root = cJSON_Parse(json_message);
-                    char *type = cJSON_GetObjectItem(root, "type")->valuestring;
-                    if(strcmp(type, "cadastro") == 0){
-                        char * data;
-                        char *room = cJSON_GetObjectItem(root, "room")->valuestring;
-                        strcpy(room_name, room);
+                    char *room = cJSON_GetObjectItem(root, "room")->valuestring;
+                    strcpy(room_name, room);
+                    
+                    cJSON_DeleteItemFromObject(root, "type");
+                    cJSON_DeleteItemFromObject(root, "sender");
 
-                        cJSON_DeleteItemFromObject(root, "type");
-                        cJSON_DeleteItemFromObject(root, "sender");
-                        data = cJSON_Print(root);
-                        write_nvs(data);
-                        cJSON_Delete(root);
-                        break;
-                    }
-                    cJSON_Delete(root);
-                    connected = false;
+                    is_dimmable = cJSON_GetObjectItem(root, "is_dimmable")->valueint;
+
+                    char * data = cJSON_Print(root);
+                    write_nvs(data);
+                    connected = true;
                 }
             }
             cJSON_Delete(root);
@@ -163,7 +169,21 @@ void wait_button_press(void *args)
                 free(text);
                 cJSON_Delete(json);
 
-                gpio_set_level(GPIO_NUM_2, input_status);
+                if(is_dimmable)
+                {
+                    if(input_status)
+                    {
+                        set_pwm(last_intensity);
+                    }
+                    else
+                    {
+                        set_pwm(0);
+                    }
+                }
+                else 
+                {
+                    gpio_set_level(GPIO_NUM_2, input_status);
+                }
             }
         }
         vTaskDelay(100 / portTICK_PERIOD_MS);
@@ -184,7 +204,7 @@ void handle_server_communication(void *args)
                 derived_mac_addr[3], derived_mac_addr[4], derived_mac_addr[5]);
         sprintf(topic, "fse2021/180113861/dispositivos/%s",mac_addr);
 
-        char data[500];
+        char data[1000];
         message_semaphore = xSemaphoreCreateBinary();
 
         if(read_nvs(data))
@@ -194,6 +214,9 @@ void handle_server_communication(void *args)
             cJSON_AddItemToObject(root, "id", cJSON_CreateString(mac_addr));
             cJSON_AddItemToObject(root, "mode", cJSON_CreateNumber(OPERATION_MODE));
             cJSON_AddItemToObject(root, "sender", cJSON_CreateString("distribuido"));
+
+            is_dimmable = cJSON_GetObjectItem(root, "is_dimmable")->valueint;
+
             char *text = cJSON_Print(root);
             
             mqtt_send_message(topic, text);
@@ -202,6 +225,7 @@ void handle_server_communication(void *args)
             free(text);
             cJSON_Delete(root);
             mqtt_subscribe(topic);
+            xTaskCreate(&wait_messages, "Conexão ao MQTT", 4096, NULL, 1, NULL);
         }
         else 
         {
@@ -215,7 +239,7 @@ void handle_server_communication(void *args)
             mqtt_subscribe(topic);
             xTaskCreate(&wait_messages, "Conexão ao MQTT", 4096, NULL, 1, NULL);
 
-            while(connected) {
+            while(!connected) {
                 mqtt_send_message(topic, msg);
                 vTaskDelay(5000 / portTICK_PERIOD_MS);
             }
@@ -272,7 +296,7 @@ void send_dht_data()
             count = 0;
             valid_readings = 0;
         }
-        vTaskDelay(2000 / portTICK_PERIOD_MS);   
+        vTaskDelay(2000 / portTICK_PERIOD_MS);
     }
 }
 
