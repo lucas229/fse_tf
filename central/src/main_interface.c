@@ -371,7 +371,7 @@ void request_mode(char *topic) {
 void change_status(Device *dev){
     char topic[100];
 
-    sprintf(topic, "fse2021/180113861/dispositivos/%s", dev->id);
+    sprintf(topic, "fse2021/180113861/%s/estado", rooms[dev->room]);
     
     cJSON *root = cJSON_CreateObject();
     cJSON_AddItemToObject(root, "type", cJSON_CreateString("status"));
@@ -512,6 +512,13 @@ void handle_device_data(struct mqtt_response_publish *published, char *type) {
 void handle_register_request(struct mqtt_response_publish *published){
     cJSON *root = cJSON_Parse(published->application_message);
     char* device_mac = cJSON_GetObjectItem(root, "id")->valuestring;
+
+    for(int i = 0; i < queue_size; i++) {
+        if(strcmp(devices_queue[i], device_mac) == 0) {
+            cJSON_Delete(root);
+            return;
+        }
+    }
 
     strcpy(devices_queue[queue_size++], device_mac);
     cJSON_Delete(root);

@@ -22,6 +22,7 @@ char mac_addr[50];
 char esp_topic[100];
 char room_name[50];
 int input_status = 0;
+int connected = true; 
 
 TaskHandle_t *const wifi_task, server_task; 
 
@@ -56,7 +57,8 @@ void wait_messages(void *args)
                 {
                     input_status = cJSON_GetObjectItem(root, "status")->valueint;
                     gpio_set_level(GPIO_NUM_2, input_status);
-                } else if(strcmp(type, "mode") == 0)
+                } 
+                else if(strcmp(type, "mode") == 0)
                 {
                     cJSON *json = cJSON_CreateObject();
                     cJSON_AddItemToObject(json, "sender", cJSON_CreateString("distribuido"));
@@ -67,7 +69,8 @@ void wait_messages(void *args)
                     mqtt_send_message(esp_topic, text);
                     free(text);
                     cJSON_Delete(json);
-                } else if(strcmp(type, "frequencia") == 0) 
+                } 
+                else if(strcmp(type, "frequencia") == 0) 
                 {
                     cJSON *json = cJSON_CreateObject();
                     cJSON_AddItemToObject(json, "sender", cJSON_CreateString("distribuido"));
@@ -82,6 +85,27 @@ void wait_messages(void *args)
                 {
                     erase_nvs();
                     esp_restart();
+                }
+                else if(strcmp(type, "cadastro") == 0)
+                {
+                    char json_message[1000];
+                    get_message(json_message);
+                    cJSON *root = cJSON_Parse(json_message);
+                    char *type = cJSON_GetObjectItem(root, "type")->valuestring;
+                    if(strcmp(type, "cadastro") == 0){
+                        char * data;
+                        char *room = cJSON_GetObjectItem(root, "room")->valuestring;
+                        strcpy(room_name, room);
+
+                        cJSON_DeleteItemFromObject(root, "type");
+                        cJSON_DeleteItemFromObject(root, "sender");
+                        data = cJSON_Print(root);
+                        write_nvs(data);
+                        cJSON_Delete(root);
+                        break;
+                    }
+                    cJSON_Delete(root);
+                    connected = false;
                 }
             }
             cJSON_Delete(root);
@@ -187,37 +211,23 @@ void handle_server_communication(void *args)
             cJSON_AddItemToObject(item, "status", cJSON_CreateNumber(gpio_get_level(GPIO_NUM_2)));
             cJSON_AddItemToObject(item, "sender", cJSON_CreateString("distribuido"));
             msg = cJSON_Print(item);
-            mqtt_send_message(topic, msg);  
-            cJSON_Delete(item);
-            free(msg);
 
             mqtt_subscribe(topic);
-            while(1) 
-            {
-                if(xSemaphoreTake(message_semaphore, portMAX_DELAY)) 
-                {
-                    char json_message[1000];
-                    get_message(json_message);
-                    cJSON *root = cJSON_Parse(json_message);
-                    char *type = cJSON_GetObjectItem(root, "type")->valuestring;
-                    if(strcmp(type, "cadastro") == 0){
-                        char * data;
-                        char *room = cJSON_GetObjectItem(root, "room")->valuestring;
-                        strcpy(room_name, room);
+            xTaskCreate(&wait_messages, "Conexão ao MQTT", 4096, NULL, 1, NULL);
 
-                        cJSON_DeleteItemFromObject(root, "type");
-                        cJSON_DeleteItemFromObject(root, "sender");
-                        data = cJSON_Print(root);
-                        write_nvs(data);
-                        cJSON_Delete(root);
-                        break;
-                    }
-                    cJSON_Delete(root);
-                }
+            while(connected) {
+                mqtt_send_message(topic, msg);
+                vTaskDelay(5000 / portTICK_PERIOD_MS);
             }
+
+            cJSON_Delete(item);
+            free(msg);
         }
 
-        xTaskCreate(&wait_messages, "Conexão ao MQTT", 4096, NULL, 1, NULL);
+        char status_topic[100];
+	    sprintf(status_topic, "fse2021/180113861/%s/estado", room_name);
+        mqtt_subscribe(status_topic);
+        
         xTaskCreate(&wait_button_press, "Acionamento do Botão", 4096, NULL, 1, NULL);
 
 		send_dht_data();
