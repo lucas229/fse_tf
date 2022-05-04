@@ -12,6 +12,7 @@
 #include "mqtt.h"
 #include "dht11.h"
 #include "main_interface.h"
+#include "storage.h"
 
 xSemaphoreHandle wifi_connection_semaphore;
 xSemaphoreHandle mqtt_connection_semaphore;
@@ -51,7 +52,8 @@ void wait_messages(void *args)
                 {
                     int status = cJSON_GetObjectItem(root, "status")->valueint;
                     gpio_set_level(GPIO_NUM_2, status);
-                } else if(strcmp(type, "mode") == 0){
+                } else if(strcmp(type, "mode") == 0)
+                {
                     cJSON *json = cJSON_CreateObject();
                     char esp_topic[100];
                     sprintf(esp_topic, "fse2021/180113861/dispositivos/%s",mac_addr);
@@ -63,7 +65,8 @@ void wait_messages(void *args)
                     mqtt_envia_mensagem(esp_topic, text);
                     free(text);
                     cJSON_Delete(json);
-                } else if(strcmp(type, "frequencia") == 0) {
+                } else if(strcmp(type, "frequencia") == 0) 
+                {
                     cJSON *json = cJSON_CreateObject();
                     char esp_topic[100];
                     sprintf(esp_topic, "fse2021/180113861/dispositivos/%s",mac_addr);
@@ -74,7 +77,8 @@ void wait_messages(void *args)
                     mqtt_envia_mensagem(esp_topic, text);
                     free(text);
                     cJSON_Delete(json);
-                } else if(strcmp(type, "remove") == 0) {
+                } else if(strcmp(type, "remove") == 0) 
+                {
                     vTaskDelete(wifi_task);
                     vTaskDelete(server_task);
                     reconnect_semaphore = xSemaphoreCreateBinary();
@@ -109,7 +113,6 @@ void wait_button_press(void *args)
         if(count == 3)
         {
             xSemaphoreGive(reconnect_semaphore);
-            
         }
         vTaskDelay(1000 / portTICK_PERIOD_MS);
     }
@@ -120,9 +123,9 @@ void handle_server_communication(void *args)
     char *msg;
     char topic[100];
 	char room_name[50];
-
+    
     if(xSemaphoreTake(mqtt_connection_semaphore, portMAX_DELAY))
-    {
+    {   
         uint8_t derived_mac_addr[6] = {0};
         ESP_ERROR_CHECK(esp_read_mac(derived_mac_addr, ESP_MAC_WIFI_STA));
         sprintf(mac_addr, "%x:%x:%x:%x:%x:%x",
@@ -130,31 +133,61 @@ void handle_server_communication(void *args)
                 derived_mac_addr[3], derived_mac_addr[4], derived_mac_addr[5]);
         sprintf(topic, "fse2021/180113861/dispositivos/%s",mac_addr);
 
-        cJSON *item = cJSON_CreateObject();
-        cJSON_AddItemToObject(item, "id", cJSON_CreateString(mac_addr));
-        cJSON_AddItemToObject(item, "type", cJSON_CreateString("cadastro"));
-        cJSON_AddItemToObject(item, "status", cJSON_CreateNumber(gpio_get_level(GPIO_NUM_2)));
-        cJSON_AddItemToObject(item, "sender", cJSON_CreateString("distribuido"));
-        msg = cJSON_Print(item);
-        mqtt_envia_mensagem(topic, msg);  
-        cJSON_Delete(item);
-        free(msg);
-
-        mqtt_inscrever(topic);
+        char data[500];
         message_semaphore = xSemaphoreCreateBinary();
-        while(1) {
-            if(xSemaphoreTake(message_semaphore, portMAX_DELAY)) {
-                char json_message[100];
-                obter_mensagem(json_message);
-                cJSON *root = cJSON_Parse(json_message);
-                char *type = cJSON_GetObjectItem(root, "type")->valuestring;
-                if(strcmp(type, "cadastro") == 0){
-                    char *room = cJSON_GetObjectItem(root, "room")->valuestring;
-                    strcpy(room_name, room);
+
+        if(read_nvs(data))
+        {
+            cJSON *root = cJSON_Parse(data);
+            cJSON_AddItemToObject(root, "type", cJSON_CreateString("reconectar"));
+            cJSON_AddItemToObject(root, "id", cJSON_CreateString(mac_addr));
+            cJSON_AddItemToObject(root, "mode", cJSON_CreateNumber(OPERATION_MODE));
+            cJSON_AddItemToObject(root, "sender", cJSON_CreateString("distribuido"));
+            char *text = cJSON_Print(root);
+            
+            mqtt_envia_mensagem(topic, text);
+            strcpy(room_name, cJSON_GetObjectItem(root, "room")->valuestring);
+
+            free(text);
+            cJSON_Delete(root);
+            mqtt_inscrever(topic);
+        }
+        else 
+        {
+            
+            cJSON *item = cJSON_CreateObject();
+            cJSON_AddItemToObject(item, "id", cJSON_CreateString(mac_addr));
+            cJSON_AddItemToObject(item, "type", cJSON_CreateString("cadastro"));
+            cJSON_AddItemToObject(item, "status", cJSON_CreateNumber(gpio_get_level(GPIO_NUM_2)));
+            cJSON_AddItemToObject(item, "sender", cJSON_CreateString("distribuido"));
+            msg = cJSON_Print(item);
+            mqtt_envia_mensagem(topic, msg);  
+            cJSON_Delete(item);
+            free(msg);
+
+            mqtt_inscrever(topic);
+            while(1) 
+            {
+                if(xSemaphoreTake(message_semaphore, portMAX_DELAY)) 
+                {
+                    char json_message[1000];
+                    obter_mensagem(json_message);
+                    cJSON *root = cJSON_Parse(json_message);
+                    char *type = cJSON_GetObjectItem(root, "type")->valuestring;
+                    if(strcmp(type, "cadastro") == 0){
+                        char * data;
+                        char *room = cJSON_GetObjectItem(root, "room")->valuestring;
+                        strcpy(room_name, room);
+
+                        cJSON_DeleteItemFromObject(root, "type");
+                        cJSON_DeleteItemFromObject(root, "sender");
+                        data = cJSON_Print(root);
+                        write_nvs(data);
+                        cJSON_Delete(root);
+                        break;
+                    }
                     cJSON_Delete(root);
-                    break;
                 }
-                cJSON_Delete(root);
             }
         }
 
@@ -232,8 +265,6 @@ void init_server()
         ret = nvs_flash_init();
     }
     ESP_ERROR_CHECK(ret);
-
-    ESP_LOGI("MODO", "%d", OPERATION_MODE);
 
     wifi_connection_semaphore = xSemaphoreCreateBinary();
     mqtt_connection_semaphore = xSemaphoreCreateBinary();

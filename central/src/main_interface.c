@@ -233,6 +233,13 @@ void new_room_menu() {
     getstr(room_name);
     if(find_room_by_name(room_name) == -1){
         strcpy(rooms[rooms_size++], room_name);
+        char new_topic[100];
+        sprintf(new_topic, "fse2021/180113861/%s/temperatura", room_name);
+        mqtt_subscribe(&client, new_topic, 0);
+        sprintf(new_topic, "fse2021/180113861/%s/umidade", room_name);
+        mqtt_subscribe(&client, new_topic, 0);
+        sprintf(new_topic, "fse2021/180113861/%s/estado", room_name);
+        mqtt_subscribe(&client, new_topic, 0);
     }
     noecho();
     curs_set(0);
@@ -331,28 +338,25 @@ void menu_register() {
 void register_device(Device new_device) {
     char *msg;
     char msg_topic[100];
-    char new_topic[100];
 
     cJSON *item = cJSON_CreateObject();
     cJSON_AddItemToObject(item, "type", cJSON_CreateString("cadastro"));
     cJSON_AddItemToObject(item, "sender", cJSON_CreateString("central"));
     cJSON_AddItemToObject(item, "room", cJSON_CreateString(rooms[new_device.room]));
+    cJSON_AddItemToObject(item, "input", cJSON_CreateString(new_device.input));
+    cJSON_AddItemToObject(item, "output", cJSON_CreateString(new_device.output));
+    cJSON_AddItemToObject(item, "trigger_alarm", cJSON_CreateNumber(new_device.trigger_alarm));
+    cJSON_AddItemToObject(item, "is_dimmable", cJSON_CreateNumber(new_device.is_dimmable));
 
     sprintf(msg_topic, "fse2021/180113861/dispositivos/%s", new_device.id);
     msg = cJSON_Print(item);
 
     mqtt_publish(&client, msg_topic, msg, strlen(msg), MQTT_PUBLISH_QOS_0);
     free(msg);
-    
-    sprintf(new_topic, "fse2021/180113861/%s/temperatura", rooms[new_device.room]);
-    mqtt_subscribe(&client, new_topic, 0);
-    sprintf(new_topic, "fse2021/180113861/%s/umidade", rooms[new_device.room]);
-    mqtt_subscribe(&client, new_topic, 0);
-    sprintf(new_topic, "fse2021/180113861/%s/estado", rooms[new_device.room]);
-    mqtt_subscribe(&client, new_topic, 0);
+    cJSON_Delete(item);
 
     new_device.status = 0;
-
+    new_device.is_active = 1;
     devices[devices_size++] = new_device;
 
     request_mode(msg_topic);
@@ -451,6 +455,8 @@ void publish_callback(void **unused, struct mqtt_response_publish *published) {
             handle_register_request(published);
         } else if(strcmp(type, "mode") == 0) {
             devices[find_device_by_mac(cJSON_GetObjectItem(root, "id")->valuestring)].mode = cJSON_GetObjectItem(root, "mode")->valueint;
+        } else if(strcmp(type, "reconectar") == 0) {
+            handle_reconnect_request(published);
         } else if(strcmp(type, "frequencia") != 0){
             handle_device_data(published, type);
         } else {
@@ -459,6 +465,25 @@ void publish_callback(void **unused, struct mqtt_response_publish *published) {
     }
 
     cJSON_Delete(root);
+}
+
+void handle_reconnect_request(struct mqtt_response_publish *published) {
+    cJSON *json = cJSON_Parse(published->application_message);
+
+    Device device;
+    strcpy(device.id, cJSON_GetObjectItem(json, "id")->valuestring);
+    strcpy(device.input, cJSON_GetObjectItem(json, "input")->valuestring);
+    strcpy(device.output, cJSON_GetObjectItem(json, "output")->valuestring);
+   
+    device.room = find_room_by_name(cJSON_GetObjectItem(json, "room")->valuestring);
+    device.mode = cJSON_GetObjectItem(json, "mode")->valueint;
+    device.trigger_alarm = cJSON_GetObjectItem(json, "trigger_alarm")->valueint;
+    device.is_dimmable = cJSON_GetObjectItem(json, "is_dimmable")->valueint;
+    device.status = 0;
+    device.is_active = 1;
+    devices[devices_size++] = device;
+
+    cJSON_Delete(json);
 }
 
 void handle_device_data(struct mqtt_response_publish *published, char *type) {
