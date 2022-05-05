@@ -423,8 +423,6 @@ void init_server()
     }
     ESP_ERROR_CHECK(ret);
 
-    erase_nvs();
-
     wifi_connection_semaphore = xSemaphoreCreateBinary();
     mqtt_connection_semaphore = xSemaphoreCreateBinary();
     wifi_reconnection_semaphore = xSemaphoreCreateBinary();

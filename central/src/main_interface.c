@@ -555,7 +555,6 @@ void publish_callback(void **unused, struct mqtt_response_publish *published) {
 void *start_alarm(void *args) {
     while(alarm_status == 2) {
         beep();
-        mvprintw(0, 80, "BEEEEP\n");
         sleep(2);
     }
     return NULL;
@@ -662,9 +661,12 @@ void *check_frequence(void *args) {
     while(1) {
         for(int i = 0; i < devices_size; i++) {
             if(devices[i].mode == ENERGY_ID) {
+                if(devices[i].is_active == 2) {
+                    remove_device(find_device_by_mac(devices[i].id));
+                }
                 sprintf(topic, "fse2021/180113861/dispositivos/%s", devices[i].id);
-                devices[i].is_active = 0; 
-                mqtt_publish(&client, topic, message, strlen(message), MQTT_PUBLISH_QOS_0);            
+                devices[i].is_active = 2;
+                mqtt_publish(&client, topic, message, strlen(message), MQTT_PUBLISH_QOS_0);    
             }
         }
         sleep(10);
