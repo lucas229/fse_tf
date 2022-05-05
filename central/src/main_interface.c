@@ -164,18 +164,33 @@ void room_menu(){
                 printw("Dispositivos:\n");
             }
             for(int i = 0; i < count; i++) {
-                if(list[i]->status == 0) {
+                printw("[%d] ", i);
+                if(list[i]->input_status == 0) {
                     attron(COLOR_PAIR(RED));
                 } else {
                     attron(COLOR_PAIR(GREEN));
                 }
-                printw("[%d] %s", i, list[i]->input);
+                printw("%s", list[i]->input);
+                attron(COLOR_PAIR(DEFAULT));
+
                 if(list[i]->mode == ENERGY_ID) {
-                    printw(" | %s", list[i]->output);
+                    printw(" | ");
+
+                    if(list[i]->output_status == 0) {
+                        attron(COLOR_PAIR(RED));
+                    } else {
+                        attron(COLOR_PAIR(GREEN));
+                    }
+                    printw("%s", list[i]->output);
+                    if(list[i]->is_dimmable && list[i]->output_status!=0 ){
+                        attron(COLOR_PAIR(DEFAULT));
+                        printw(" ( %d )", list[i]->output_status);
+
+                    }
                 }
                 printw("\n");
+                attron(COLOR_PAIR(DEFAULT));
             }
-            attron(COLOR_PAIR(DEFAULT));
 
             printw("\n[Q] Voltar\n");
             int command = getch();
@@ -219,15 +234,23 @@ int dimmable_menu(){
 void device_menu(Device *dev) {
     while(1) {
         erase();
-        if(dev->status) {
-            attron(COLOR_PAIR(1));
-            printw("Estado atual: Ligado\n");
+        if(dev->input_status) {
+            attron(COLOR_PAIR(GREEN));
+            printw("Estado da entrada: Ligado\n");
         } else {
-            attron(COLOR_PAIR(2));
-            printw("Estado atual: Desligado\n");
+            attron(COLOR_PAIR(RED));
+            printw("Estado da entrada: Desligado\n");
         }
-        attroff(COLOR_PAIR(1));
-        attroff(COLOR_PAIR(2));
+        if(dev->mode == ENERGY_ID) {
+            if(dev->output_status) {
+                attron(COLOR_PAIR(GREEN));
+                printw("Estado da saída: Ligado\n");
+            } else {
+                attron(COLOR_PAIR(RED));
+                printw("Estado da saída: Desligado\n");
+            }
+        }
+        attron(COLOR_PAIR(DEFAULT));
         print_device(dev->id);
         if(dev->mode == ENERGY_ID){
             printw("\n[A] Ligar/Desligar dipositivo\n");
@@ -243,9 +266,9 @@ void device_menu(Device *dev) {
             }
             if(command == 'a') {
                 if(dev->is_dimmable) {
-                    dev->status = dimmable_menu();      
+                    dev->output_status = dimmable_menu();      
                 } else {
-                    dev->status = !dev->status;
+                    dev->output_status = !dev->output_status;
                 }
                 change_status(dev);
                 check_alarm(dev->id);                
@@ -343,7 +366,7 @@ void menu_register() {
             printw("Não há dispositivos aguardando cadastro.\n");
         }
         printw("\n[Q] Voltar\n");
-        choice = getch();
+        choice = tolower(getch());
         if(choice == 'q') {
             return;
         } else if(choice >= '0' && choice <= '9' && choice - '0' < queue_size) {
@@ -403,7 +426,6 @@ void menu_register() {
     curs_set(0);
 
     timeout(1000);
-
 
     new_device.trigger_alarm = get_answer_menu("A entrada aciona alarme?");
 
@@ -479,7 +501,8 @@ void register_device(Device new_device) {
     free(msg);
     cJSON_Delete(item);
 
-    new_device.status = 0;
+    new_device.input_status = 0;
+    new_device.output_status = 0;
     new_device.is_active = 1;
     devices[devices_size++] = new_device;
 
@@ -509,16 +532,16 @@ void change_status(Device *dev){
     cJSON_AddItemToObject(root, "type", cJSON_CreateString("status"));
     cJSON_AddItemToObject(root, "sender", cJSON_CreateString("central"));
     cJSON_AddItemToObject(root, "id", cJSON_CreateString(dev->id));
-    cJSON_AddItemToObject(root, "status", cJSON_CreateNumber(dev->status));
+    cJSON_AddItemToObject(root, "status", cJSON_CreateNumber(dev->output_status));
     
     char *text = cJSON_Print(root);
 
     mqtt_publish(&client, topic, text, strlen(text), MQTT_PUBLISH_QOS_0);
 
-    if(dev->status == 0) {
-        log_data(dev->id, "dispositivo desligado");
+    if(dev->output_status == 0) {
+        log_data(dev->id, "dispositivo de saída desligado");
     } else {
-        log_data(dev->id, "dispositivo ligado");
+        log_data(dev->id, "dispositivo de saída ligado");
     }
 
     free(text);
@@ -529,10 +552,12 @@ void print_device(char* mac_addr){
     int i = find_device_by_mac(mac_addr);
     printw("MAC: %s\n", devices[i].id);
     printw("Aciona alarme: %d\n", devices[i].trigger_alarm);
-    printw("Entrada: %s\n", devices[i].input);
+    printw("Nome da entrada: %s\n", devices[i].input);
     if(devices[i].mode == ENERGY_ID){
         printw("Saída: %s\n", devices[i].output);
-        printw("Dimerizável: %d\n", devices[i].is_dimmable);
+        if(devices[i].is_dimmable) {
+            printw("Intensidade: %d\n", devices[i].output_status);
+        }
         printw("Tipo: Energia\n");
     } else if(devices[i].mode == BATTERY_ID){
         printw("Tipo: Bateria\n");
@@ -595,11 +620,11 @@ void publish_callback(void **unused, struct mqtt_response_publish *published) {
         } else if(strcmp(type, "remover") == 0) {
             remove_device(find_device_by_mac(cJSON_GetObjectItem(root, "id")->valuestring));
         } else if(strcmp(type, "status") == 0) {
-            devices[find_device_by_mac(cJSON_GetObjectItem(root, "id")->valuestring)].status = cJSON_GetObjectItem(root, "status")->valueint;
+            devices[find_device_by_mac(cJSON_GetObjectItem(root, "id")->valuestring)].input_status = cJSON_GetObjectItem(root, "status")->valueint;
                 if(cJSON_GetObjectItem(root, "status")->valueint == 0) {
-                    log_data(cJSON_GetObjectItem(root, "id")->valuestring, "dispositivo desligado");
+                    log_data(cJSON_GetObjectItem(root, "id")->valuestring, "dispositivo de entrada desligado");
                 } else {
-                    log_data(cJSON_GetObjectItem(root, "id")->valuestring, "dispositivo ligado");
+                    log_data(cJSON_GetObjectItem(root, "id")->valuestring, "dispositivo entrada ligado");
                 }
             check_alarm(cJSON_GetObjectItem(root, "id")->valuestring);
         } else if(strcmp(type, "frequencia") != 0){
@@ -633,7 +658,7 @@ void handle_alarm_status(){
     }
     int allow_enable = 1;
     for(int i=0; i<devices_size; i++){
-        if(devices[i].trigger_alarm && devices[i].status){
+        if(devices[i].trigger_alarm && devices[i].input_status){
             allow_enable = 0;
             break;
         }
@@ -647,7 +672,7 @@ void handle_alarm_status(){
 
 void check_alarm(char *mac) {
     int index = find_device_by_mac(mac);
-    if(devices[index].trigger_alarm && devices[index].status) {
+    if(devices[index].trigger_alarm && devices[index].input_status) {
         if(alarm_status == 1) {
             alarm_status = 2;
             log_data("geral", "dispara alarme");
@@ -668,7 +693,8 @@ void handle_reconnect_request(struct mqtt_response_publish *published) {
     device.mode = cJSON_GetObjectItem(json, "mode")->valueint;
     device.trigger_alarm = cJSON_GetObjectItem(json, "trigger_alarm")->valueint;
     device.is_dimmable = cJSON_GetObjectItem(json, "is_dimmable")->valueint;
-    device.status = 0;
+    device.input_status = 0;
+    device.output_status = 0;
     device.is_active = 1;
     devices[devices_size++] = device;
 

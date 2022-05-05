@@ -19,7 +19,8 @@
 typedef struct Device {
     char id[20];
     char input[50], output[50];
-    int status;
+    int input_status;
+    int output_status;
     int room; 
     int mode;
     float temperature;

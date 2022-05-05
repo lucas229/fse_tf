@@ -66,9 +66,9 @@ void wait_messages(void *args)
                     if(strcmp(id_receiver, mac_addr) == 0)
                     {
                         input_status = cJSON_GetObjectItem(root, "status")->valueint;
-                        if(input_status) {
-                            last_intensity = input_status;
-                        }
+                        // if(input_status) {
+                        //     last_intensity = input_status;
+                        // }
                         if(is_dimmable)
                         {
                             set_pwm(input_status);
@@ -184,21 +184,21 @@ void wait_button_press(void *args)
                 free(text);
                 cJSON_Delete(json);
 
-                if(is_dimmable)
-                {
-                    if(input_status)
-                    {
-                        set_pwm(last_intensity);
-                    }
-                    else
-                    {
-                        set_pwm(0);
-                    }
-                }
-                else 
-                {
-                    gpio_set_level(GPIO_NUM_2, input_status);
-                }
+                // if(is_dimmable)
+                // {
+                //     if(input_status)
+                //     {
+                //         set_pwm(last_intensity);
+                //     }
+                //     else
+                //     {
+                //         set_pwm(0);
+                //     }
+                // }
+                // else 
+                // {
+                //     gpio_set_level(GPIO_NUM_2, input_status);
+                // }
             }
         }
         vTaskDelay(100 / portTICK_PERIOD_MS);
