@@ -83,36 +83,39 @@ void *init_menu(void *args) {
 
     start_color();
     use_default_colors();
-    init_pair(1, COLOR_GREEN, -1);
-    init_pair(2, COLOR_RED, -1);
-    init_pair(3, COLOR_YELLOW, -1);
+    init_pair(DEFAULT, -1, -1);
+    init_pair(GREEN, COLOR_GREEN, -1);
+    init_pair(RED, COLOR_RED, -1);
+    init_pair(YELLOW, COLOR_YELLOW, -1);
+    init_pair(BLUE, COLOR_BLUE, -1);
 
     while(1) {
         erase();
+        attron(COLOR_PAIR(BLUE));
         printw("Menu inicial\n\n");
-        printw("[1] Cadastrar dispositivo\n");
-        printw("[2] Gerenciar cômodos\n");
+        attron(COLOR_PAIR(DEFAULT));
+        
+        printw("[C] Cadastrar dispositivo\n");
+        printw("[G] Gerenciar cômodos\n");
+        
         if(alarm_status == 0) {
-            attron(COLOR_PAIR(2));
+            attron(COLOR_PAIR(RED));
         } else if(alarm_status == 1) {
-            attron(COLOR_PAIR(3));
+            attron(COLOR_PAIR(YELLOW));
         } else {
-            attron(COLOR_PAIR(1));
+            attron(COLOR_PAIR(GREEN));
         }
 
-        printw("[a] Ligar/Desligar alarme\n");
+        printw("[A] Ligar/Desligar alarme\n");
 
-        attroff(COLOR_PAIR(1));
-        attroff(COLOR_PAIR(2));
-        attroff(COLOR_PAIR(3));
+        attron(COLOR_PAIR(DEFAULT));
+        printw("\n[Q] Finalizar\n");
 
-        printw("\n[q] Finalizar\n");
-
-        int command = getch();
+        int command = tolower(getch());
         if(command != ERR) {
-            if(command == '1') {
+            if(command == 'c') {
                 menu_register();
-            } else if(command == '2') {
+            } else if(command == 'g') {
                 room_menu();
             } else if(command == 'a') {
                 handle_alarm_status();
@@ -124,7 +127,6 @@ void *init_menu(void *args) {
     }
     return NULL;
 }
-
 
 void room_menu(){
     while(1){
@@ -140,7 +142,9 @@ void room_menu(){
         Device *list[MAX_DEVICES];
         while(1) {
             erase();
+            attron(COLOR_PAIR(BLUE));
             printw("Cômodo: %s\n\n", rooms[room]);
+            attron(COLOR_PAIR(DEFAULT));
             float temperature = find_data(room, 't'), humidity = find_data(room, 'h');
             if(temperature > 0) {
                 printw("Temperatura: %.1f ºC\n", temperature);
@@ -155,19 +159,25 @@ void room_menu(){
             }
 
             if(count == 0) {
-                printw("Não há dispositivos nesse cômodo\n\n");
+                printw("Não há dispositivos nesse cômodo.\n");
             } else {
                 printw("Dispositivos:\n");
             }
             for(int i = 0; i < count; i++) {
+                if(list[i]->status == 0) {
+                    attron(COLOR_PAIR(RED));
+                } else {
+                    attron(COLOR_PAIR(GREEN));
+                }
                 printw("[%d] %s", i, list[i]->input);
                 if(list[i]->mode == ENERGY_ID) {
                     printw(" | %s", list[i]->output);
                 }
                 printw("\n");
             }
+            attron(COLOR_PAIR(DEFAULT));
 
-            printw("\n[q] Voltar\n");
+            printw("\n[Q] Voltar\n");
             int command = getch();
             if(command != ERR) {
                 if(command - '0' >= 0 && command  - '0' < count) {
@@ -220,12 +230,12 @@ void device_menu(Device *dev) {
         attroff(COLOR_PAIR(2));
         print_device(dev->id);
         if(dev->mode == ENERGY_ID){
-            printw("\n[a] Ligar/Desligar dipositivo\n");
-            printw("[r] Remover dispositivo\n");
+            printw("\n[A] Ligar/Desligar dipositivo\n");
+            printw("[R] Remover dispositivo\n");
         } else {
             printw("\n");
         }
-        printw("[q] Voltar\n");
+        printw("[Q] Voltar\n");
         int command = getch();
         if(command != ERR) {
             if((command == 'a' || command == 'r') && dev->mode == BATTERY_ID) {
@@ -256,17 +266,21 @@ int room_selection_menu() {
     int choice = -1;
     while(1) {
         erase();
+
+        attron(COLOR_PAIR(BLUE));
         printw("Selecione um cômodo:\n\n");
+        attron(COLOR_PAIR(DEFAULT));
+
         for(int i = 0; i < rooms_size; i++) {
             printw("[%d] %s\n", i, rooms[i]);
         }
         if(rooms_size > 0) {
             printw("\n");
         }
-        printw("[n] Novo cômodo\n");
-        printw("[q] Voltar\n");
+        printw("[N] Novo cômodo\n");
+        printw("[Q] Voltar\n");
         refresh();
-        choice = getch();
+        choice = tolower(getch());
         if(choice != ERR) {
             if(choice == 'n') {
                 new_room_menu();
@@ -286,7 +300,10 @@ void new_room_menu() {
     erase();
     echo();
     curs_set(1);
+    attron(COLOR_PAIR(BLUE));
     printw("Cadastrando novo cômodo...\n\n");
+    attron(COLOR_PAIR(DEFAULT));
+
     printw("Nome do cômodo: ");
     char room_name[25];
     getstr(room_name);
@@ -315,14 +332,17 @@ void menu_register() {
 
     while(1) {
         erase();
+        attron(COLOR_PAIR(BLUE));
         printw("Selecione um dispositivo para cadastrar:\n\n");
+        attron(COLOR_PAIR(DEFAULT));
+        
         for(int i = 0; i < queue_size; i++) {            
             printw("[%d] MAC: %s\n", i, devices_queue[i]);
         }
         if(queue_size == 0){
             printw("Não há dispositivos aguardando cadastro.\n");
         }
-        printw("\n[q] Voltar\n");
+        printw("\n[Q] Voltar\n");
         choice = getch();
         if(choice == 'q') {
             return;
@@ -338,7 +358,9 @@ void menu_register() {
 
     request_mode(devices_queue[choice - '0']);
     clear();
+    attron(COLOR_PAIR(YELLOW));
     printw("Iniciando o cadastro do dispositivo...\n");
+    attron(COLOR_PAIR(DEFAULT));
     refresh();
     sleep(2);
 
@@ -355,7 +377,10 @@ void menu_register() {
     curs_set(1);
 
     clear();
+    attron(COLOR_PAIR(BLUE));
     printw("Cadastrando dispositivo...\n\n");
+    attron(COLOR_PAIR(DEFAULT));
+
     char input_device_name[25], output_device_name[25];
     printw("Nome do dispositivo de entrada: ");
     refresh();
@@ -364,7 +389,10 @@ void menu_register() {
 
     if(devices[devices_size].mode == ENERGY_ID) {
         clear();
+        attron(COLOR_PAIR(BLUE));
         printw("Cadastrando dispositivo...\n\n");
+        attron(COLOR_PAIR(DEFAULT));
+        
         printw("Nome do dispositivo de saída: ");
         refresh();
         getstr(output_device_name);
@@ -394,7 +422,10 @@ void menu_register() {
 
     timeout(-1);
     clear();
+    attron(COLOR_PAIR(BLUE));
     printw("Dispositivo cadastrado com sucesso\n\n");
+    attron(COLOR_PAIR(DEFAULT));
+
     print_device(devices[devices_size - 1].id);
     printw("\nAperte qualquer tecla para continuar...\n");
     getch();
@@ -405,19 +436,27 @@ void menu_register() {
 
 int get_answer_menu(char *question) {
     clear();
-    char answer; 
+    int answer;  
     while(1) {
         erase();
+        attron(COLOR_PAIR(BLUE));
         printw("Cadastrando dispositivo...\n\n");
-        printw("%s\n[1] Sim\n[0] Não\n", question);
+        attron(COLOR_PAIR(DEFAULT));
+        
+        printw("%s\n[S] Sim\n[N] Não\n", question);
         refresh();
-        answer = getchar();
-        if(answer == '1' || answer == '0'){
+        answer = tolower(getchar());
+
+        if(answer == 's'){
+            answer = 1;
             break; 
-        }  
+        } else if(answer == 'n'){
+            answer = 0;
+            break;
+        }
     }
 
-    return answer - '0';
+    return answer;
 }
 
 void register_device(Device new_device) {

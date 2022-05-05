@@ -10,6 +10,12 @@
 #define ENERGY_ID 1
 #define BATTERY_ID 0
 
+#define GREEN 1
+#define RED 2
+#define YELLOW 3
+#define BLUE 4
+#define DEFAULT 5
+
 typedef struct Device {
     char id[20];
     char input[50], output[50];
