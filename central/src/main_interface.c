@@ -133,7 +133,11 @@ void room_menu(){
                 printw("Dispositivos:\n");
             }
             for(int i = 0; i < count; i++) {
-                printw("[%d] %s / %s\n", i, list[i]->input, list[i]->output);
+                printw("[%d] %s", i, list[i]->input);
+                if(list[i]->mode == ENERGY_ID) {
+                    printw(" | %s", list[i]->output);
+                }
+                printw("\n");
             }
 
             printw("\n[q] Voltar\n");
@@ -157,7 +161,7 @@ int dimmable_menu(){
     echo();
     curs_set(1);
 
-    printw("Intensidade do acionamento: ");
+    printw("Intensidade do acionamento (0 a 255): ");
     refresh();
     char num[5];
     getstr(num);
@@ -197,6 +201,8 @@ void device_menu(Device *dev) {
         if(dev->mode == ENERGY_ID){
             printw("\n[a] Ligar/Desligar dipositivo\n");
             printw("[r] Remover dispositivo\n");
+        } else {
+            printw("\n");
         }
         printw("[q] Voltar\n");
         int command = getch();
@@ -330,28 +336,25 @@ void menu_register() {
     getstr(input_device_name);
     strcpy(new_device.input, input_device_name);
 
-    clear();
-    printw("Cadastrando dispositivo...\n\n");
-    printw("Nome do dispositivo de saída: ");
-    refresh();
-    getstr(output_device_name);
-    strcpy(new_device.output, output_device_name);
+    if(devices[devices_size].mode == ENERGY_ID) {
+        clear();
+        printw("Cadastrando dispositivo...\n\n");
+        printw("Nome do dispositivo de saída: ");
+        refresh();
+        getstr(output_device_name);
+        strcpy(new_device.output, output_device_name);
+    }
 
     noecho();
     curs_set(0);
 
-    clear();
-    printw("Cadastrando dispositivo...\n\n");
-    printw("A entrada aciona alarme?\n[1] Sim\n[0] Não\n");
-    refresh();
-    new_device.trigger_alarm = getchar() - '0';
+    timeout(1000);
+
+
+    new_device.trigger_alarm = get_answer_menu("A entrada aciona alarme?");
 
     if(devices[devices_size].mode == ENERGY_ID) {
-        clear();
-        printw("Cadastrando dispositivo...\n\n");
-        printw("A saída é dimerizável?\n[1] Sim\n[0] Não\n");
-        refresh();
-        new_device.is_dimmable = getchar() - '0';
+        new_device.is_dimmable = get_answer_menu("A saída é dimerizável?");
     }
     else {
         new_device.is_dimmable = 0;
@@ -363,6 +366,7 @@ void menu_register() {
     }
     queue_size--;
 
+    timeout(-1);
     clear();
     printw("Dispositivo cadastrado com sucesso\n\n");
     print_device(devices[devices_size - 1].id);
@@ -371,6 +375,23 @@ void menu_register() {
 
     refresh();
     timeout(1000);
+}
+
+int get_answer_menu(char *question) {
+    clear();
+    char answer; 
+    while(1) {
+        erase();
+        printw("Cadastrando dispositivo...\n\n");
+        printw("%s\n[1] Sim\n[0] Não\n", question);
+        refresh();
+        answer = getchar();
+        if(answer == '1' || answer == '0'){
+            break; 
+        }  
+    }
+
+    return answer - '0';
 }
 
 void register_device(Device new_device) {

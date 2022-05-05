@@ -48,5 +48,6 @@ void handle_remove_device(char *mac_addr);
 void handle_register_request(struct mqtt_response_publish *published);
 void handle_device_data(struct mqtt_response_publish *published, char *type);
 void handle_reconnect_request(struct mqtt_response_publish *published);
+int get_answer_menu(char *question);
 
 #endif
