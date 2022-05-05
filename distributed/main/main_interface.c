@@ -62,17 +62,21 @@ void wait_messages(void *args)
                 char *type = cJSON_GetObjectItem(root, "type")->valuestring;
                 if(strcmp(type, "status") == 0)
                 {
-                    input_status = cJSON_GetObjectItem(root, "status")->valueint;
-                    if(input_status) {
-                        last_intensity = input_status;
-                    }
-                    if(is_dimmable)
+                    char *id_receiver = cJSON_GetObjectItem(root, "id")->valuestring;
+                    if(strcmp(id_receiver, mac_addr) == 0)
                     {
-                        set_pwm(input_status);
-                    }
-                    else
-                    {
-                        gpio_set_level(GPIO_NUM_2, input_status);
+                        input_status = cJSON_GetObjectItem(root, "status")->valueint;
+                        if(input_status) {
+                            last_intensity = input_status;
+                        }
+                        if(is_dimmable)
+                        {
+                            set_pwm(input_status);
+                        }
+                        else
+                        {
+                            gpio_set_level(GPIO_NUM_2, input_status);
+                        }
                     }
                 } 
                 else if(strcmp(type, "mode") == 0)
@@ -210,7 +214,7 @@ void handle_server_communication(void *args)
     {   
         uint8_t derived_mac_addr[6] = {0};
         ESP_ERROR_CHECK(esp_read_mac(derived_mac_addr, ESP_MAC_WIFI_STA));
-        sprintf(mac_addr, "%x:%x:%x:%x:%x:%x",
+        sprintf(mac_addr, MACSTR,
                 derived_mac_addr[0], derived_mac_addr[1], derived_mac_addr[2],
                 derived_mac_addr[3], derived_mac_addr[4], derived_mac_addr[5]);
         sprintf(topic, "fse2021/180113861/dispositivos/%s",mac_addr);

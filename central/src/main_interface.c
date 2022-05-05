@@ -469,6 +469,7 @@ void change_status(Device *dev){
     cJSON *root = cJSON_CreateObject();
     cJSON_AddItemToObject(root, "type", cJSON_CreateString("status"));
     cJSON_AddItemToObject(root, "sender", cJSON_CreateString("central"));
+    cJSON_AddItemToObject(root, "id", cJSON_CreateString(dev->id));
     cJSON_AddItemToObject(root, "status", cJSON_CreateNumber(dev->status));
     
     char *text = cJSON_Print(root);
