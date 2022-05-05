@@ -18,7 +18,8 @@ int queue_size = 0;
 
 struct mqtt_client client;
 int sockfd = -1;
-pthread_t menu_tid, client_daemon, freq_tid;
+int alarm_status = 0;
+pthread_t menu_tid, client_daemon, freq_tid, alarm_tid;
 
 void init_server() {
     char addr[] = "test.mosquitto.org";
@@ -77,11 +78,31 @@ void *init_menu(void *args) {
     noecho();
     timeout(1000);
 
+    start_color();
+    use_default_colors();
+    init_pair(1, COLOR_GREEN, -1);
+    init_pair(2, COLOR_RED, -1);
+    init_pair(3, COLOR_YELLOW, -1);
+
     while(1) {
         erase();
         printw("Menu inicial\n\n");
         printw("[1] Cadastrar dispositivo\n");
         printw("[2] Gerenciar cômodos\n");
+        if(alarm_status == 0) {
+            attron(COLOR_PAIR(2));
+        } else if(alarm_status == 1) {
+            attron(COLOR_PAIR(3));
+        } else {
+            attron(COLOR_PAIR(1));
+        }
+
+        printw("[a] Ligar/Desligar alarme\n");
+
+        attroff(COLOR_PAIR(1));
+        attroff(COLOR_PAIR(2));
+        attroff(COLOR_PAIR(3));
+
         printw("\n[q] Finalizar\n");
 
         int command = getch();
@@ -90,6 +111,8 @@ void *init_menu(void *args) {
                 menu_register();
             } else if(command == '2') {
                 room_menu();
+            } else if(command == 'a') {
+                handle_alarm_status();
             } else if(command == 'q') {
                 exit_server();
             }
@@ -98,6 +121,7 @@ void *init_menu(void *args) {
     }
     return NULL;
 }
+
 
 void room_menu(){
     while(1){
@@ -180,12 +204,6 @@ int dimmable_menu(){
 }
 
 void device_menu(Device *dev) {
-    
-    start_color();
-    use_default_colors();
-    init_pair(1, COLOR_GREEN, -1);
-    init_pair(2, COLOR_RED, -1);
-
     while(1) {
         erase();
         if(dev->status) {
@@ -217,6 +235,7 @@ void device_menu(Device *dev) {
                     dev->status = !dev->status;
                 }
                 change_status(dev);
+                check_alarm(dev->id);
             } else if(command == 'r'){
                 handle_remove_device(dev->id);
                 break;
@@ -522,6 +541,7 @@ void publish_callback(void **unused, struct mqtt_response_publish *published) {
             remove_device(find_device_by_mac(cJSON_GetObjectItem(root, "id")->valuestring));
         } else if(strcmp(type, "status") == 0) {
             devices[find_device_by_mac(cJSON_GetObjectItem(root, "id")->valuestring)].status = cJSON_GetObjectItem(root, "status")->valueint;
+            check_alarm(cJSON_GetObjectItem(root, "id")->valuestring);
         } else if(strcmp(type, "frequencia") != 0){
             handle_device_data(published, type);
         } else {
@@ -530,6 +550,48 @@ void publish_callback(void **unused, struct mqtt_response_publish *published) {
     }
 
     cJSON_Delete(root);
+}
+
+void *start_alarm(void *args) {
+    while(alarm_status == 2) {
+        beep();
+        mvprintw(0, 80, "BEEEEP\n");
+        sleep(2);
+    }
+    return NULL;
+}
+
+void handle_alarm_status(){
+    if(alarm_status != 0) {
+        if(alarm_status == 2) {
+            alarm_status = 0;
+            pthread_join(alarm_tid, NULL);
+        } else if(alarm_status == 1) {
+            alarm_status = 0;
+        }
+        return;
+    }
+    int allow_enable = 1;
+    for(int i=0; i<devices_size; i++){
+        if(devices[i].trigger_alarm && devices[i].status){
+            allow_enable = 0;
+            break;
+        }
+    }
+    if (allow_enable){
+        alarm_status = 1;
+    }
+}
+
+
+void check_alarm(char *mac) {
+    int index = find_device_by_mac(mac);
+    if(devices[index].trigger_alarm && devices[index].status) {
+        if(alarm_status == 1) {
+            alarm_status = 2;
+            pthread_create(&alarm_tid, NULL, start_alarm, NULL);
+        }
+    }
 }
 
 void handle_reconnect_request(struct mqtt_response_publish *published) {
