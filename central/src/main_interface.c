@@ -201,7 +201,7 @@ void device_menu(Device *dev) {
         printw("[q] Voltar\n");
         int command = getch();
         if(command != ERR) {
-            if((command == 'a' || command == 'r') && dev->mode == ENERGY_ID) {
+            if((command == 'a' || command == 'r') && dev->mode == BATTERY_ID) {
                 continue;
             }
             if(command == 'a') {
@@ -303,6 +303,13 @@ void menu_register() {
     }
     
     Device new_device;
+
+    request_mode(devices_queue[choice - '0']);
+    clear();
+    printw("Iniciando o cadastro do dispositivo...\n");
+    refresh();
+    sleep(2);
+
     strcpy(new_device.id, devices_queue[choice - '0']);
     new_device.room = room_selection_menu();
     if(new_device.room == -1){
@@ -339,22 +346,22 @@ void menu_register() {
     refresh();
     new_device.trigger_alarm = getchar() - '0';
 
-    clear();
-    printw("Cadastrando dispositivo...\n\n");
-    printw("A saída é dimerizável?\n[1] Sim\n[0] Não\n");
-    refresh();
-    new_device.is_dimmable = getchar() - '0';
-
+    if(devices[devices_size].mode == ENERGY_ID) {
+        clear();
+        printw("Cadastrando dispositivo...\n\n");
+        printw("A saída é dimerizável?\n[1] Sim\n[0] Não\n");
+        refresh();
+        new_device.is_dimmable = getchar() - '0';
+    }
+    else {
+        new_device.is_dimmable = 0;
+    }
+    new_device.mode = devices[devices_size].mode;
     register_device(new_device);
     for(int i = choice - '0'; i < queue_size - 1; i++) {
         strcpy(devices_queue[i], devices_queue[i + 1]);
     }
     queue_size--;
-    
-    clear();
-    printw("O dispositivo está sendo cadastrado...\n");
-    refresh();
-    sleep(2);
 
     clear();
     printw("Dispositivo cadastrado com sucesso\n\n");
@@ -389,11 +396,13 @@ void register_device(Device new_device) {
     new_device.status = 0;
     new_device.is_active = 1;
     devices[devices_size++] = new_device;
-
-    request_mode(msg_topic);
 }
 
-void request_mode(char *topic) {
+void request_mode(char *mac) {
+    char topic[100];
+    sprintf(topic, "fse2021/180113861/dispositivos/%s", mac);
+
+    
     cJSON *json = cJSON_CreateObject();
     cJSON_AddItemToObject(json, "type", cJSON_CreateString("mode"));
     cJSON_AddItemToObject(json, "sender", cJSON_CreateString("central"));
@@ -424,11 +433,11 @@ void change_status(Device *dev){
 void print_device(char* mac_addr){
     int i = find_device_by_mac(mac_addr);
     printw("MAC: %s\n", devices[i].id);
-    printw("Entrada: %s\n", devices[i].input);
-    printw("Saída: %s\n", devices[i].output);
     printw("Aciona alarme: %d\n", devices[i].trigger_alarm);
-    printw("Dimerizável: %d\n", devices[i].is_dimmable);
+    printw("Entrada: %s\n", devices[i].input);
     if(devices[i].mode == ENERGY_ID){
+        printw("Saída: %s\n", devices[i].output);
+        printw("Dimerizável: %d\n", devices[i].is_dimmable);
         printw("Tipo: Energia\n");
     } else if(devices[i].mode == BATTERY_ID){
         printw("Tipo: Bateria\n");
@@ -485,7 +494,7 @@ void publish_callback(void **unused, struct mqtt_response_publish *published) {
         if(strcmp(type, "cadastro") == 0) {
             handle_register_request(published);
         } else if(strcmp(type, "mode") == 0) {
-            devices[find_device_by_mac(cJSON_GetObjectItem(root, "id")->valuestring)].mode = cJSON_GetObjectItem(root, "mode")->valueint;
+            devices[devices_size].mode = cJSON_GetObjectItem(root, "mode")->valueint;
         } else if(strcmp(type, "reconectar") == 0) {
             handle_reconnect_request(published);
         } else if(strcmp(type, "remover") == 0) {
@@ -569,9 +578,11 @@ void *check_frequence(void *args) {
     
     while(1) {
         for(int i = 0; i < devices_size; i++) {
-            sprintf(topic, "fse2021/180113861/dispositivos/%s", devices[i].id);
-            devices[i].is_active = 0; 
-            mqtt_publish(&client, topic, message, strlen(message), MQTT_PUBLISH_QOS_0);
+            if(devices[i].mode == ENERGY_ID) {
+                sprintf(topic, "fse2021/180113861/dispositivos/%s", devices[i].id);
+                devices[i].is_active = 0; 
+                mqtt_publish(&client, topic, message, strlen(message), MQTT_PUBLISH_QOS_0);            
+            }
         }
         sleep(10);
     }

@@ -101,6 +101,8 @@ void wait_messages(void *args)
                 else if(strcmp(type, "remover") == 0)
                 {
                     erase_nvs();
+                    vTaskDelay(pdMS_TO_TICKS(500));
+                    mqtt_stop();
                     esp_restart();
                 }
                 else if(strcmp(type, "cadastro") == 0)
@@ -266,8 +268,8 @@ void handle_server_communication(void *args)
             char status_topic[100];
             sprintf(status_topic, "fse2021/180113861/%s/estado", room_name);
             mqtt_subscribe(status_topic);
-            send_dht_data();
             xTaskCreate(&wait_button_press, "Acionamento do Botão", 4096, NULL, 1, NULL);
+            send_dht_data();
         }
     }
 }
