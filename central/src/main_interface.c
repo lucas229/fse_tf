@@ -7,6 +7,7 @@
 #include "posix_sockets.h"
 #include "cJSON.h"
 #include "main_interface.h"
+#include "logger.h"
 
 Device devices[MAX_DEVICES];
 int devices_size = 0;
@@ -22,6 +23,8 @@ int alarm_status = 0;
 pthread_t menu_tid, client_daemon, freq_tid, alarm_tid;
 
 void init_server() {
+
+    init_file();
     char addr[] = "test.mosquitto.org";
     char port[] = "1883";
     char topic[] = "fse2021/180113861/dispositivos/+";
@@ -235,7 +238,7 @@ void device_menu(Device *dev) {
                     dev->status = !dev->status;
                 }
                 change_status(dev);
-                check_alarm(dev->id);
+                check_alarm(dev->id);                
             } else if(command == 'r'){
                 handle_remove_device(dev->id);
                 break;
@@ -290,12 +293,16 @@ void new_room_menu() {
     if(find_room_by_name(room_name) == -1){
         strcpy(rooms[rooms_size++], room_name);
         char new_topic[100];
+        char command[100];
         sprintf(new_topic, "fse2021/180113861/%s/temperatura", room_name);
         mqtt_subscribe(&client, new_topic, 0);
         sprintf(new_topic, "fse2021/180113861/%s/umidade", room_name);
         mqtt_subscribe(&client, new_topic, 0);
         sprintf(new_topic, "fse2021/180113861/%s/estado", room_name);
         mqtt_subscribe(&client, new_topic, 0);
+
+        sprintf(command, "Cadastro do cômodo %s", room_name);
+        log_data("geral", command);
     }
     noecho();
     curs_set(0);
@@ -436,6 +443,8 @@ void register_device(Device new_device) {
     new_device.status = 0;
     new_device.is_active = 1;
     devices[devices_size++] = new_device;
+
+    log_data(new_device.id, "dispositivo adicionado");
 }
 
 void request_mode(char *mac) {
@@ -465,6 +474,12 @@ void change_status(Device *dev){
     char *text = cJSON_Print(root);
 
     mqtt_publish(&client, topic, text, strlen(text), MQTT_PUBLISH_QOS_0);
+
+    if(dev->status == 0) {
+        log_data(dev->id, "dispositivo desligado");
+    } else {
+        log_data(dev->id, "dispositivo ligado");
+    }
 
     free(text);
     cJSON_Delete(root);
@@ -541,6 +556,11 @@ void publish_callback(void **unused, struct mqtt_response_publish *published) {
             remove_device(find_device_by_mac(cJSON_GetObjectItem(root, "id")->valuestring));
         } else if(strcmp(type, "status") == 0) {
             devices[find_device_by_mac(cJSON_GetObjectItem(root, "id")->valuestring)].status = cJSON_GetObjectItem(root, "status")->valueint;
+                if(cJSON_GetObjectItem(root, "status")->valueint == 0) {
+                    log_data(cJSON_GetObjectItem(root, "id")->valuestring, "dispositivo desligado");
+                } else {
+                    log_data(cJSON_GetObjectItem(root, "id")->valuestring, "dispositivo ligado");
+                }
             check_alarm(cJSON_GetObjectItem(root, "id")->valuestring);
         } else if(strcmp(type, "frequencia") != 0){
             handle_device_data(published, type);
@@ -568,6 +588,7 @@ void handle_alarm_status(){
         } else if(alarm_status == 1) {
             alarm_status = 0;
         }
+        log_data("geral", "desativa alarme");
         return;
     }
     int allow_enable = 1;
@@ -578,7 +599,8 @@ void handle_alarm_status(){
         }
     }
     if (allow_enable){
-        alarm_status = 1;
+        alarm_status = 1;        
+        log_data("geral", "habilita alarme");
     }
 }
 
@@ -588,6 +610,7 @@ void check_alarm(char *mac) {
     if(devices[index].trigger_alarm && devices[index].status) {
         if(alarm_status == 1) {
             alarm_status = 2;
+            log_data("geral", "dispara alarme");
             pthread_create(&alarm_tid, NULL, start_alarm, NULL);
         }
     }
@@ -608,6 +631,8 @@ void handle_reconnect_request(struct mqtt_response_publish *published) {
     device.status = 0;
     device.is_active = 1;
     devices[devices_size++] = device;
+
+    log_data(device.id, "dispositivo reconectado");
 
     cJSON_Delete(json);
 }
@@ -676,14 +701,6 @@ void *check_frequence(void *args) {
     cJSON_Delete(item);
 }
 
-void* client_refresher(void *client) {
-    while(1) {
-        mqtt_sync((struct mqtt_client*) client);
-        usleep(100000U);
-    }
-    return NULL;
-}
-
 void handle_remove_device(char *mac_addr) {
     char topic[100];
     int index = find_device_by_mac(mac_addr);
@@ -702,8 +719,18 @@ void handle_remove_device(char *mac_addr) {
 }
 
 void remove_device(int index) {
+    log_data(devices[index].id, "dispositivo removido");
+    
     for(int i = index; i < devices_size - 1; i++) {
         devices[i] = devices[i + 1];
     }
     devices_size--;
+}
+
+void* client_refresher(void *client) {
+    while(1) {
+        mqtt_sync((struct mqtt_client*) client);
+        usleep(100000U);
+    }
+    return NULL;
 }
