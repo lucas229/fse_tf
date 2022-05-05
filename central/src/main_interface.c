@@ -166,7 +166,7 @@ int dimmable_menu(){
         number = 255;
     }
     else if(number < 0){
-        number == 0;
+        number = 0;
     }
     timeout(1000);
     clear();
@@ -194,11 +194,16 @@ void device_menu(Device *dev) {
         attroff(COLOR_PAIR(1));
         attroff(COLOR_PAIR(2));
         print_device(dev->id);
-        printw("\n[a] Ligar/Desligar dipositivo\n");
-        printw("[r] Remover dispositivo\n");
+        if(dev->mode == ENERGY_ID){
+            printw("\n[a] Ligar/Desligar dipositivo\n");
+            printw("[r] Remover dispositivo\n");
+        }
         printw("[q] Voltar\n");
         int command = getch();
         if(command != ERR) {
+            if((command == 'a' || command == 'r') && dev->mode == ENERGY_ID) {
+                continue;
+            }
             if(command == 'a') {
                 if(dev->is_dimmable) {
                     dev->status = dimmable_menu();      

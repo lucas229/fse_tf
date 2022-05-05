@@ -92,3 +92,12 @@ void mqtt_subscribe(char *topic) {
 void get_message(char *message) {
     strcpy(message, msg);
 }
+
+
+void mqtt_stop() {
+    esp_mqtt_client_stop(client);
+}
+
+void mqtt_restart() {
+    esp_mqtt_client_start(client);
+}

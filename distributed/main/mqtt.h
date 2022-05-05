@@ -6,5 +6,7 @@ void mqtt_start();
 void mqtt_send_message(char * topic, char * message);
 void mqtt_subscribe();
 void get_message(char *message);
+void mqtt_restart();
+void mqtt_stop();
 
 #endif

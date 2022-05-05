@@ -14,10 +14,14 @@
 #include "main_interface.h"
 #include "storage.h"
 #include "pwm.h"
+#include "esp_sleep.h"
+#include "driver/rtc_io.h"
+#include "esp32/rom/uart.h"
 
 xSemaphoreHandle wifi_connection_semaphore;
 xSemaphoreHandle mqtt_connection_semaphore;
 xSemaphoreHandle message_semaphore;
+xSemaphoreHandle wifi_reconnection_semaphore;
 
 char mac_addr[50]; 
 char esp_topic[100];
@@ -27,7 +31,7 @@ bool is_dimmable = true;
 int connected = false; 
 int last_intensity = 50;
 
-TaskHandle_t *const wifi_task, server_task; 
+TaskHandle_t messages_handle;
 
 void wifi_connect(void *args)
 {
@@ -133,7 +137,8 @@ void wait_button_press(void *args)
             {
                 count++;
                 vTaskDelay(100 / portTICK_PERIOD_MS);
-                if(count == 30) {
+                if(count == 30)
+                {
                     break;
                 }
             }
@@ -150,6 +155,10 @@ void wait_button_press(void *args)
                 cJSON_Delete(json);
 
                 erase_nvs();
+
+                vTaskDelay(pdMS_TO_TICKS(500));
+                mqtt_stop();
+
                 esp_restart();
             }
             else
@@ -225,7 +234,7 @@ void handle_server_communication(void *args)
             free(text);
             cJSON_Delete(root);
             mqtt_subscribe(topic);
-            xTaskCreate(&wait_messages, "Conexão ao MQTT", 4096, NULL, 1, NULL);
+            xTaskCreate(&wait_messages, "Conexão ao MQTT", 4096, NULL, 1, &messages_handle);
         }
         else 
         {
@@ -237,7 +246,7 @@ void handle_server_communication(void *args)
             msg = cJSON_Print(item);
 
             mqtt_subscribe(topic);
-            xTaskCreate(&wait_messages, "Conexão ao MQTT", 4096, NULL, 1, NULL);
+            xTaskCreate(&wait_messages, "Conexão ao MQTT", 4096, NULL, 1, &messages_handle);
 
             while(!connected) {
                 mqtt_send_message(topic, msg);
@@ -248,13 +257,100 @@ void handle_server_communication(void *args)
             free(msg);
         }
 
-        char status_topic[100];
-	    sprintf(status_topic, "fse2021/180113861/%s/estado", room_name);
-        mqtt_subscribe(status_topic);
-        
-        xTaskCreate(&wait_button_press, "Acionamento do Botão", 4096, NULL, 1, NULL);
+        if(OPERATION_MODE == BATTERY_MODE)
+        {
+           init_battery_mode();
+        }
+        else
+        {
+            char status_topic[100];
+            sprintf(status_topic, "fse2021/180113861/%s/estado", room_name);
+            mqtt_subscribe(status_topic);
+            send_dht_data();
+            xTaskCreate(&wait_button_press, "Acionamento do Botão", 4096, NULL, 1, NULL);
+        }
+    }
+}
 
-		send_dht_data();
+void init_battery_mode()
+{
+    ESP_LOGI("DEBUG", "CONFIGURADO PARA BATERIA");
+    vTaskDelete(messages_handle);
+
+    gpio_pad_select_gpio(GPIO_NUM_0);
+    gpio_set_direction(GPIO_NUM_0, GPIO_MODE_INPUT);
+    gpio_wakeup_enable(GPIO_NUM_0, GPIO_INTR_LOW_LEVEL);
+    esp_sleep_enable_gpio_wakeup();
+    int count = 0;
+    while(true)
+    {
+        vTaskDelay(pdMS_TO_TICKS(500));
+        mqtt_stop();
+        wifi_stop();
+        ESP_LOGI("SLEEP", "Entrando em modo Light Sleep\n");
+        uart_tx_wait_idle(CONFIG_ESP_CONSOLE_UART_NUM);
+        esp_light_sleep_start();
+
+        if(rtc_gpio_get_level(GPIO_NUM_0) == 0)
+        {
+            count = 0;
+            while(rtc_gpio_get_level(GPIO_NUM_0) == 0)
+            {
+                count++;
+                vTaskDelay(100 / portTICK_PERIOD_MS);
+                if(count == 30)
+                {
+                    break;
+                }
+            }
+        }
+
+        wifi_restart();
+
+        if(xSemaphoreTake(wifi_reconnection_semaphore, portMAX_DELAY)){
+            mqtt_restart();
+        }
+
+        if(count == 30)
+        {
+            ESP_LOGI("DEBUG", "REBOOT");
+            cJSON *json = cJSON_CreateObject();
+            cJSON_AddItemToObject(json, "type", cJSON_CreateString("remover"));
+            cJSON_AddItemToObject(json, "sender", cJSON_CreateString("distribuido"));
+            cJSON_AddItemToObject(json, "id", cJSON_CreateString(mac_addr));
+
+            char *text = cJSON_Print(json);
+            mqtt_send_message(esp_topic, text);
+            free(text);
+            cJSON_Delete(json);
+            
+            erase_nvs();
+
+            vTaskDelay(pdMS_TO_TICKS(500));
+            mqtt_stop();
+
+            esp_restart();
+        }
+        else
+        {
+            input_status = !input_status;
+            ESP_LOGI("DEBUG", "PREPARANDO PARA ENVIAR");
+            
+            cJSON *json = cJSON_CreateObject();
+            cJSON_AddItemToObject(json, "type", cJSON_CreateString("status"));
+            cJSON_AddItemToObject(json, "sender", cJSON_CreateString("distribuido"));
+            cJSON_AddItemToObject(json, "id", cJSON_CreateString(mac_addr));
+            cJSON_AddItemToObject(json, "status", cJSON_CreateNumber(input_status));
+
+            char *text = cJSON_Print(json);
+
+            char status_topic[100];
+            sprintf(status_topic, "fse2021/180113861/%s/estado", room_name);
+            mqtt_send_message(status_topic ,text);
+
+            free(text);
+            cJSON_Delete(json);
+        }
     }
 }
 
@@ -325,14 +421,17 @@ void init_server()
     }
     ESP_ERROR_CHECK(ret);
 
+    erase_nvs();
+
     wifi_connection_semaphore = xSemaphoreCreateBinary();
     mqtt_connection_semaphore = xSemaphoreCreateBinary();
+    wifi_reconnection_semaphore = xSemaphoreCreateBinary();
     wifi_start();
 
     gpio_reset_pin(GPIO_NUM_2);
     gpio_set_direction(GPIO_NUM_2, GPIO_MODE_OUTPUT);
 
-    xTaskCreate(&wifi_connect,  "Conexão ao MQTT", 4096, NULL, 1, wifi_task);
+    xTaskCreate(&wifi_connect,  "Conexão ao MQTT", 4096, NULL, 1, NULL);
     
-    xTaskCreate(&handle_server_communication, "Comunicação com Broker", 4096, NULL, 1, server_task);
+    xTaskCreate(&handle_server_communication, "Comunicação com Broker", 4096, NULL, 1, NULL);
 }

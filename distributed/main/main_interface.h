@@ -18,5 +18,6 @@ void wait_messages(void *args);
 void handle_server_communication(void *args);
 void send_dht_data();
 void create_data_json(char **msg, char *type, float data);
+void init_battery_mode();
 
 #endif
