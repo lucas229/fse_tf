@@ -38,6 +38,7 @@ Criamos um [vídeo de apresentação](https://youtu.be/THk1y65D4Zs) para demonst
 
 ## Observações
 - O projeto utiliza o broker público test.mosquitto.org.
+- O desenvolvimento foi feito utilizando ESP-IDF nativa.
 - A versão do ESP-IDF utilizada no projeto foi a 4.4.1.
 - Quando o alarme implementado na aplicação é disparado, o som é emitido pelo terminal.
 - O log de eventos é guardado em um arquivo csv na pasta "Logs" do servidor central.
