@@ -1,17 +1,9 @@
 #include "wifi.h"
 
-#include <string.h>
 #include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
 #include "freertos/event_groups.h"
-#include "esp_system.h"
 #include "esp_wifi.h"
-#include "esp_event.h"
 #include "esp_log.h"
-#include "nvs_flash.h"
-
-#include "lwip/err.h"
-#include "lwip/sys.h"
 
 #define WIFI_SSID      CONFIG_ESP_WIFI_SSID
 #define WIFI_PASS      CONFIG_ESP_WIFI_PASSWORD
@@ -27,6 +19,8 @@ static EventGroupHandle_t s_wifi_event_group;
 static int s_retry_num = 0;
 extern xSemaphoreHandle wifi_connection_semaphore;
 extern xSemaphoreHandle wifi_reconnection_semaphore;
+
+int first_connection = 1;
 
 static void event_handler(void* arg, esp_event_base_t event_base,
                                 int32_t event_id, void* event_data)
@@ -47,7 +41,15 @@ static void event_handler(void* arg, esp_event_base_t event_base,
         ESP_LOGI(TAG, "Endereço IP recebido:" IPSTR, IP2STR(&event->ip_info.ip));
         s_retry_num = 0;
         xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
-        xSemaphoreGive(wifi_connection_semaphore);
+        if(first_connection)
+        {
+            xSemaphoreGive(wifi_connection_semaphore);
+            first_connection = 0;
+        }
+        else
+        {
+            xSemaphoreGive(wifi_reconnection_semaphore);
+        }
     }
 }
 

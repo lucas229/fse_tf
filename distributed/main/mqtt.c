@@ -1,20 +1,3 @@
-#include <stdio.h>
-#include <stdint.h>
-#include <stddef.h>
-#include <string.h>
-#include "esp_system.h"
-#include "esp_event.h"
-#include "esp_netif.h"
-
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include "freertos/semphr.h"
-#include "freertos/queue.h"
-
-#include "lwip/sockets.h"
-#include "lwip/dns.h"
-#include "lwip/netdb.h"
-
 #include "esp_log.h"
 #include "mqtt_client.h"
 
@@ -24,7 +7,7 @@
 
 extern xSemaphoreHandle mqtt_connection_semaphore;
 extern xSemaphoreHandle message_semaphore;
-char msg[100]; 
+char msg[500]; 
 
 esp_mqtt_client_handle_t client;
 
@@ -92,7 +75,6 @@ void mqtt_subscribe(char *topic) {
 void get_message(char *message) {
     strcpy(message, msg);
 }
-
 
 void mqtt_stop() {
     esp_mqtt_client_stop(client);

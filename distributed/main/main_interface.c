@@ -1,13 +1,9 @@
-#include <stdio.h>
 #include <string.h>
 #include "cJSON.h"
 #include "nvs_flash.h"
-#include "esp_wifi.h"
 #include "esp_event.h"
-#include "esp_http_client.h"
 #include "esp_log.h"
 #include "freertos/semphr.h"
-#include "esp_mac.h"
 #include "wifi.h"
 #include "mqtt.h"
 #include "dht11.h"
@@ -23,13 +19,12 @@ xSemaphoreHandle mqtt_connection_semaphore;
 xSemaphoreHandle message_semaphore;
 xSemaphoreHandle wifi_reconnection_semaphore;
 
-char mac_addr[50]; 
+char mac_addr[50];
 char esp_topic[100];
 char room_name[50];
 int input_status = 0;
 bool is_dimmable = true;
 int connected = false; 
-int last_intensity = 50;
 
 TaskHandle_t messages_handle;
 
@@ -66,9 +61,7 @@ void wait_messages(void *args)
                     if(strcmp(id_receiver, mac_addr) == 0)
                     {
                         input_status = cJSON_GetObjectItem(root, "status")->valueint;
-                        // if(input_status) {
-                        //     last_intensity = input_status;
-                        // }
+
                         if(is_dimmable)
                         {
                             set_pwm(input_status);
@@ -121,6 +114,7 @@ void wait_messages(void *args)
 
                     char * data = cJSON_Print(root);
                     write_nvs(data);
+                    free(data);
                     connected = true;
                 }
             }
@@ -157,6 +151,7 @@ void wait_button_press(void *args)
 
                 char *text = cJSON_Print(json);
                 mqtt_send_message(esp_topic, text);
+
                 free(text);
                 cJSON_Delete(json);
 
@@ -178,27 +173,13 @@ void wait_button_press(void *args)
                 cJSON_AddItemToObject(json, "sender", cJSON_CreateString("distribuido"));
 
                 char *text = cJSON_Print(json);
+
                 char status_topic[100];
                 sprintf(status_topic, "fse2021/180113861/%s/estado", room_name);
                 mqtt_send_message(status_topic ,text);
+
                 free(text);
                 cJSON_Delete(json);
-
-                // if(is_dimmable)
-                // {
-                //     if(input_status)
-                //     {
-                //         set_pwm(last_intensity);
-                //     }
-                //     else
-                //     {
-                //         set_pwm(0);
-                //     }
-                // }
-                // else 
-                // {
-                //     gpio_set_level(GPIO_NUM_2, input_status);
-                // }
             }
         }
         vTaskDelay(100 / portTICK_PERIOD_MS);
@@ -207,19 +188,18 @@ void wait_button_press(void *args)
 
 void handle_server_communication(void *args)
 {
-    char *msg;
-    char topic[100];
-    
     if(xSemaphoreTake(mqtt_connection_semaphore, portMAX_DELAY))
-    {   
+    {
         uint8_t derived_mac_addr[6] = {0};
         ESP_ERROR_CHECK(esp_read_mac(derived_mac_addr, ESP_MAC_WIFI_STA));
         sprintf(mac_addr, MACSTR,
                 derived_mac_addr[0], derived_mac_addr[1], derived_mac_addr[2],
                 derived_mac_addr[3], derived_mac_addr[4], derived_mac_addr[5]);
+
+        char topic[100];
         sprintf(topic, "fse2021/180113861/dispositivos/%s",mac_addr);
 
-        char data[1000];
+        char data[500];
         message_semaphore = xSemaphoreCreateBinary();
 
         if(read_nvs(data))
@@ -233,12 +213,13 @@ void handle_server_communication(void *args)
             is_dimmable = cJSON_GetObjectItem(root, "is_dimmable")->valueint;
 
             char *text = cJSON_Print(root);
-            
+
             mqtt_send_message(topic, text);
             strcpy(room_name, cJSON_GetObjectItem(root, "room")->valuestring);
 
             free(text);
             cJSON_Delete(root);
+
             mqtt_subscribe(topic);
             xTaskCreate(&wait_messages, "Conexão ao MQTT", 4096, NULL, 1, &messages_handle);
         }
@@ -249,7 +230,7 @@ void handle_server_communication(void *args)
             cJSON_AddItemToObject(item, "type", cJSON_CreateString("cadastro"));
             cJSON_AddItemToObject(item, "status", cJSON_CreateNumber(gpio_get_level(GPIO_NUM_2)));
             cJSON_AddItemToObject(item, "sender", cJSON_CreateString("distribuido"));
-            msg = cJSON_Print(item);
+            char *msg = cJSON_Print(item);
 
             mqtt_subscribe(topic);
             xTaskCreate(&wait_messages, "Conexão ao MQTT", 4096, NULL, 1, &messages_handle);
@@ -280,13 +261,14 @@ void handle_server_communication(void *args)
 
 void init_battery_mode()
 {
-    ESP_LOGI("DEBUG", "CONFIGURADO PARA BATERIA");
+    ESP_LOGI("Modo", "Configurado para bateria");
     vTaskDelete(messages_handle);
 
     gpio_pad_select_gpio(GPIO_NUM_0);
     gpio_set_direction(GPIO_NUM_0, GPIO_MODE_INPUT);
     gpio_wakeup_enable(GPIO_NUM_0, GPIO_INTR_LOW_LEVEL);
     esp_sleep_enable_gpio_wakeup();
+
     int count = 0;
     while(true)
     {
@@ -327,9 +309,10 @@ void init_battery_mode()
 
             char *text = cJSON_Print(json);
             mqtt_send_message(esp_topic, text);
+
             free(text);
             cJSON_Delete(json);
-            
+
             erase_nvs();
 
             vTaskDelay(pdMS_TO_TICKS(500));
@@ -340,8 +323,7 @@ void init_battery_mode()
         else
         {
             input_status = !input_status;
-            ESP_LOGI("DEBUG", "PREPARANDO PARA ENVIAR");
-            
+
             cJSON *json = cJSON_CreateObject();
             cJSON_AddItemToObject(json, "type", cJSON_CreateString("status"));
             cJSON_AddItemToObject(json, "sender", cJSON_CreateString("distribuido"));
@@ -384,6 +366,9 @@ void send_dht_data()
         if(count == 5)
         {
             char *dht_temp_msg = NULL, *dht_humidity_msg = NULL;
+            if(valid_readings == 0) {
+                valid_readings = 1;
+            }
 			create_data_json(&dht_temp_msg, "temperature", temperature/valid_readings);
 			create_data_json(&dht_humidity_msg, "humidity", humidity/valid_readings);
 
@@ -418,7 +403,6 @@ void create_data_json(char **msg, char *type, float data)
 
 void init_server()
 {
-    // Inicializa o NVS
     esp_err_t ret = nvs_flash_init();
     if(ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND)
     {

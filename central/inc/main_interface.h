@@ -31,7 +31,7 @@ typedef struct Device {
 } Device;
 
 void init_server();
-void init_client(const char *topic);
+void init_client();
 void exit_server();
 void publish_callback(void **unused, struct mqtt_response_publish *published);
 void *client_refresher(void *client);
@@ -47,7 +47,7 @@ int find_device_by_mac(char *mac_addr);
 int find_room_by_name(char *room_name);
 float find_data(int room, char type);
 void subscribe_room_topics(char *room);
-void print_device(char* mac_addr);
+int print_device(char* mac_addr);
 void register_device(Device new_device);
 void remove_device(int index);
 void request_mode(char *topic);

@@ -1,6 +1,5 @@
 #include <unistd.h>
 #include <stdlib.h>
-#include <stdio.h>
 #include <ncurses.h>
 #include <ctype.h>
 
@@ -14,27 +13,27 @@ int devices_size = 0;
 
 char rooms[MAX_ROOMS][50];
 int rooms_size = 0;
+
 char devices_queue[MAX_DEVICES][20];
 int queue_size = 0;
 
 struct mqtt_client client;
 int sockfd = -1;
+
 int alarm_status = 0;
-pthread_t menu_tid, client_daemon, freq_tid, alarm_tid;
+pthread_t menu_tid, client_tid, freq_tid, alarm_tid;
 
 void init_server() {
-
     init_file();
+
     char addr[] = "test.mosquitto.org";
     char port[] = "1883";
-    char topic[] = "fse2021/180113861/dispositivos/+";
     sockfd = open_nb_socket(addr, port);
-    init_client(topic);
+    init_client();
 
     pthread_create(&freq_tid, NULL, check_frequence, NULL);
     pthread_create(&menu_tid, NULL, init_menu, NULL);
 
-    pthread_join(freq_tid, NULL);
     pthread_join(menu_tid, NULL);
 }
 
@@ -43,23 +42,26 @@ void exit_server() {
     if(sockfd != -1) {
         close(sockfd);
     }
-    pthread_cancel(client_daemon);
+    pthread_cancel(client_tid);
     pthread_cancel(menu_tid);
     pthread_cancel(freq_tid);
+    if(alarm_status != 0) {
+        pthread_cancel(alarm_tid);
+    }
     exit(0);
 }
 
-void init_client(const char *topic) {
+void init_client() {
     if(sockfd == -1) {
-        perror("Failed to open socket: ");
+        perror("Failed to open socket.\n");
         exit_server();
     }
 
-    static uint8_t sendbuf[2048];
-    static uint8_t recvbuf[1024];
+    static uint8_t sendbuf[4096];
+    static uint8_t recvbuf[2048];
     mqtt_init(&client, sockfd, sendbuf, sizeof(sendbuf), recvbuf, sizeof(recvbuf), publish_callback);
 
-    const char* client_id = NULL;
+    const char *client_id = NULL;
     uint8_t connect_flags = MQTT_CONNECT_CLEAN_SESSION;
     mqtt_connect(&client, client_id, NULL, NULL, 0, NULL, NULL, connect_flags, 400);
 
@@ -68,11 +70,12 @@ void init_client(const char *topic) {
         exit_server();
     }
 
-    if(pthread_create(&client_daemon, NULL, client_refresher, &client)) {
+    if(pthread_create(&client_tid, NULL, client_refresher, &client)) {
         fprintf(stderr, "Failed to start client daemon.\n");
         exit_server();
     }
-    mqtt_subscribe(&client, topic, 0);
+
+    mqtt_subscribe(&client, "fse2021/180113861/dispositivos/+", 0);
 }
 
 void *init_menu(void *args) {
@@ -83,21 +86,21 @@ void *init_menu(void *args) {
 
     start_color();
     use_default_colors();
-    init_pair(DEFAULT, -1, -1);
     init_pair(GREEN, COLOR_GREEN, -1);
     init_pair(RED, COLOR_RED, -1);
     init_pair(YELLOW, COLOR_YELLOW, -1);
     init_pair(BLUE, COLOR_BLUE, -1);
+    init_pair(DEFAULT, -1, -1);
 
     while(1) {
         erase();
         attron(COLOR_PAIR(BLUE));
         printw("Menu inicial\n\n");
+
         attron(COLOR_PAIR(DEFAULT));
-        
         printw("[C] Cadastrar dispositivo\n");
         printw("[G] Gerenciar cômodos\n");
-        
+
         if(alarm_status == 0) {
             attron(COLOR_PAIR(RED));
         } else if(alarm_status == 1) {
@@ -105,11 +108,12 @@ void *init_menu(void *args) {
         } else {
             attron(COLOR_PAIR(GREEN));
         }
-
         printw("[A] Ligar/Desligar alarme\n");
 
         attron(COLOR_PAIR(DEFAULT));
-        printw("\n[Q] Finalizar\n");
+        printw("[Q] Finalizar\n");
+
+        refresh();
 
         int command = tolower(getch());
         if(command != ERR) {
@@ -123,34 +127,38 @@ void *init_menu(void *args) {
                 exit_server();
             }
         }
-        refresh();
     }
     return NULL;
 }
 
 void room_menu(){
+    clear();
+
     while(1){
-        int room;
+        erase();
+        int room = 0;
         do {
             room = room_selection_menu();
             if(room == -1) {
                 return;
-            }    
+            }
         } while(room == -2);
-        
+
         int count = 0;
         Device *list[MAX_DEVICES];
         while(1) {
             erase();
+
             attron(COLOR_PAIR(BLUE));
             printw("Cômodo: %s\n\n", rooms[room]);
+
             attron(COLOR_PAIR(DEFAULT));
             float temperature = find_data(room, 't'), humidity = find_data(room, 'h');
             if(temperature > 0) {
                 printw("Temperatura: %.1f ºC\n", temperature);
                 printw("Umidade: %.1f %%\n\n", humidity);
             }
-            
+
             count = 0;
             for(int i = 0; i < devices_size; i++) {
                 if(devices[i].room == room) {
@@ -171,9 +179,9 @@ void room_menu(){
                     attron(COLOR_PAIR(GREEN));
                 }
                 printw("%s", list[i]->input);
-                attron(COLOR_PAIR(DEFAULT));
 
                 if(list[i]->mode == ENERGY_ID) {
+                    attron(COLOR_PAIR(DEFAULT));
                     printw(" | ");
 
                     if(list[i]->output_status == 0) {
@@ -185,7 +193,6 @@ void room_menu(){
                     if(list[i]->is_dimmable && list[i]->output_status!=0 ){
                         attron(COLOR_PAIR(DEFAULT));
                         printw(" ( %d )", list[i]->output_status);
-
                     }
                 }
                 printw("\n");
@@ -193,25 +200,26 @@ void room_menu(){
             }
 
             printw("\n[Q] Voltar\n");
-            int command = getch();
+
+            refresh();
+
+            int command = tolower(getch());
             if(command != ERR) {
                 if(command - '0' >= 0 && command  - '0' < count) {
                     device_menu(list[command - '0']);
                 } else if(command == 'q') {
-                    break; 
+                    break;
                 }
             }
-            refresh();
         }
-        erase();
     }
 }
 
 int dimmable_menu(){
-    timeout(-1);
     clear();
     echo();
     curs_set(1);
+    timeout(-1);
 
     printw("Intensidade do acionamento (0 a 255): ");
     refresh();
@@ -220,20 +228,22 @@ int dimmable_menu(){
     int number = atoi(num);
     if(number > 255){
         number = 255;
-    }
-    else if(number < 0){
+    } else if(number < 0){
         number = 0;
     }
+
     timeout(1000);
-    clear();
     noecho();
     curs_set(0);
-    return number; 
+    return number;
 }
 
 void device_menu(Device *dev) {
+    clear();
+
     while(1) {
         erase();
+
         if(dev->input_status) {
             attron(COLOR_PAIR(GREEN));
             printw("Estado da entrada: Ligado\n");
@@ -241,6 +251,7 @@ void device_menu(Device *dev) {
             attron(COLOR_PAIR(RED));
             printw("Estado da entrada: Desligado\n");
         }
+
         if(dev->mode == ENERGY_ID) {
             if(dev->output_status) {
                 attron(COLOR_PAIR(GREEN));
@@ -250,16 +261,23 @@ void device_menu(Device *dev) {
                 printw("Estado da saída: Desligado\n");
             }
         }
+
         attron(COLOR_PAIR(DEFAULT));
-        print_device(dev->id);
+
+        if(!print_device(dev->id)) {
+            break;
+        }
+
         if(dev->mode == ENERGY_ID){
-            printw("\n[A] Ligar/Desligar dipositivo\n");
+            printw("\n[A] Ligar/Desligar saída\n");
             printw("[R] Remover dispositivo\n");
         } else {
             printw("\n");
         }
         printw("[Q] Voltar\n");
-        int command = getch();
+        refresh();
+
+        int command = tolower(getch());
         if(command != ERR) {
             if((command == 'a' || command == 'r') && dev->mode == BATTERY_ID) {
                 continue;
@@ -275,25 +293,24 @@ void device_menu(Device *dev) {
             } else if(command == 'r'){
                 handle_remove_device(dev->id);
                 break;
-            }
-            else if(command == 'q') {
+            } else if(command == 'q') {
                 break; 
             }
         }
-        refresh();
     }
-    erase();
 }
 
 int room_selection_menu() {
+    clear();
+
     int choice = -1;
     while(1) {
         erase();
 
         attron(COLOR_PAIR(BLUE));
         printw("Selecione um cômodo:\n\n");
-        attron(COLOR_PAIR(DEFAULT));
 
+        attron(COLOR_PAIR(DEFAULT));
         for(int i = 0; i < rooms_size; i++) {
             printw("[%d] %s\n", i, rooms[i]);
         }
@@ -303,6 +320,7 @@ int room_selection_menu() {
         printw("[N] Novo cômodo\n");
         printw("[Q] Voltar\n");
         refresh();
+
         choice = tolower(getch());
         if(choice != ERR) {
             if(choice == 'n') {
@@ -319,21 +337,24 @@ int room_selection_menu() {
 }
 
 void new_room_menu() {
+    clear();
+
     timeout(-1);
-    erase();
     echo();
     curs_set(1);
+
     attron(COLOR_PAIR(BLUE));
     printw("Cadastrando novo cômodo...\n\n");
-    attron(COLOR_PAIR(DEFAULT));
 
+    attron(COLOR_PAIR(DEFAULT));
     printw("Nome do cômodo: ");
+    refresh();
+
     char room_name[25];
     getstr(room_name);
     if(find_room_by_name(room_name) == -1){
         strcpy(rooms[rooms_size++], room_name);
         char new_topic[100];
-        char command[100];
         sprintf(new_topic, "fse2021/180113861/%s/temperatura", room_name);
         mqtt_subscribe(&client, new_topic, 0);
         sprintf(new_topic, "fse2021/180113861/%s/umidade", room_name);
@@ -341,25 +362,27 @@ void new_room_menu() {
         sprintf(new_topic, "fse2021/180113861/%s/estado", room_name);
         mqtt_subscribe(&client, new_topic, 0);
 
+        char command[100];
         sprintf(command, "Cadastro do cômodo %s", room_name);
         log_data("geral", command);
     }
+
     noecho();
     curs_set(0);
-    refresh();
     timeout(1000);
 }
 
 void menu_register() {   
-    int choice;
+    clear();
 
+    int choice = 0;
     while(1) {
         erase();
         attron(COLOR_PAIR(BLUE));
         printw("Selecione um dispositivo para cadastrar:\n\n");
         attron(COLOR_PAIR(DEFAULT));
-        
-        for(int i = 0; i < queue_size; i++) {            
+
+        for(int i = 0; i < queue_size; i++) {
             printw("[%d] MAC: %s\n", i, devices_queue[i]);
         }
         if(queue_size == 0){
@@ -369,23 +392,22 @@ void menu_register() {
         choice = tolower(getch());
         if(choice == 'q') {
             return;
-        } else if(choice >= '0' && choice <= '9' && choice - '0' < queue_size) {
+        } else if(choice >= '0' && choice - '0' < queue_size) {
             if(find_device_by_mac(devices_queue[choice - '0']) == -1) {
                 break;
             }
         }
         refresh();
     }
-    
-    Device new_device;
 
+    Device new_device;
     request_mode(devices_queue[choice - '0']);
+
     clear();
     attron(COLOR_PAIR(YELLOW));
     printw("Iniciando o cadastro do dispositivo...\n");
-    attron(COLOR_PAIR(DEFAULT));
     refresh();
-    sleep(2);
+    sleep(3);
 
     strcpy(new_device.id, devices_queue[choice - '0']);
     new_device.room = room_selection_menu();
@@ -402,41 +424,40 @@ void menu_register() {
     clear();
     attron(COLOR_PAIR(BLUE));
     printw("Cadastrando dispositivo...\n\n");
-    attron(COLOR_PAIR(DEFAULT));
 
-    char input_device_name[25], output_device_name[25];
+    attron(COLOR_PAIR(DEFAULT));
     printw("Nome do dispositivo de entrada: ");
     refresh();
-    getstr(input_device_name);
-    strcpy(new_device.input, input_device_name);
+
+    getstr(new_device.input);
 
     if(devices[devices_size].mode == ENERGY_ID) {
         clear();
         attron(COLOR_PAIR(BLUE));
         printw("Cadastrando dispositivo...\n\n");
-        attron(COLOR_PAIR(DEFAULT));
-        
+
+        attron(COLOR_PAIR(DEFAULT));        
         printw("Nome do dispositivo de saída: ");
+
         refresh();
-        getstr(output_device_name);
-        strcpy(new_device.output, output_device_name);
+        getstr(new_device.output);
     }
 
     noecho();
     curs_set(0);
-
     timeout(1000);
 
     new_device.trigger_alarm = get_answer_menu("A entrada aciona alarme?");
 
     if(devices[devices_size].mode == ENERGY_ID) {
         new_device.is_dimmable = get_answer_menu("A saída é dimerizável?");
-    }
-    else {
+    } else {
         new_device.is_dimmable = 0;
     }
+
     new_device.mode = devices[devices_size].mode;
     register_device(new_device);
+
     for(int i = choice - '0'; i < queue_size - 1; i++) {
         strcpy(devices_queue[i], devices_queue[i + 1]);
     }
@@ -446,32 +467,33 @@ void menu_register() {
     clear();
     attron(COLOR_PAIR(BLUE));
     printw("Dispositivo cadastrado com sucesso\n\n");
-    attron(COLOR_PAIR(DEFAULT));
 
+    attron(COLOR_PAIR(DEFAULT));
     print_device(devices[devices_size - 1].id);
     printw("\nAperte qualquer tecla para continuar...\n");
+    refresh();
     getch();
 
-    refresh();
     timeout(1000);
 }
 
 int get_answer_menu(char *question) {
     clear();
-    int answer;  
+
+    int answer = 0;
     while(1) {
         erase();
         attron(COLOR_PAIR(BLUE));
         printw("Cadastrando dispositivo...\n\n");
-        attron(COLOR_PAIR(DEFAULT));
-        
+
+        attron(COLOR_PAIR(DEFAULT));        
         printw("%s\n[S] Sim\n[N] Não\n", question);
         refresh();
         answer = tolower(getchar());
 
         if(answer == 's'){
             answer = 1;
-            break; 
+            break;
         } else if(answer == 'n'){
             answer = 0;
             break;
@@ -482,9 +504,6 @@ int get_answer_menu(char *question) {
 }
 
 void register_device(Device new_device) {
-    char *msg;
-    char msg_topic[100];
-
     cJSON *item = cJSON_CreateObject();
     cJSON_AddItemToObject(item, "type", cJSON_CreateString("cadastro"));
     cJSON_AddItemToObject(item, "sender", cJSON_CreateString("central"));
@@ -494,10 +513,12 @@ void register_device(Device new_device) {
     cJSON_AddItemToObject(item, "trigger_alarm", cJSON_CreateNumber(new_device.trigger_alarm));
     cJSON_AddItemToObject(item, "is_dimmable", cJSON_CreateNumber(new_device.is_dimmable));
 
+    char msg_topic[100];
     sprintf(msg_topic, "fse2021/180113861/dispositivos/%s", new_device.id);
-    msg = cJSON_Print(item);
 
+    char *msg = cJSON_Print(item);
     mqtt_publish(&client, msg_topic, msg, strlen(msg), MQTT_PUBLISH_QOS_0);
+
     free(msg);
     cJSON_Delete(item);
 
@@ -512,20 +533,20 @@ void register_device(Device new_device) {
 void request_mode(char *mac) {
     char topic[100];
     sprintf(topic, "fse2021/180113861/dispositivos/%s", mac);
-
     
     cJSON *json = cJSON_CreateObject();
     cJSON_AddItemToObject(json, "type", cJSON_CreateString("mode"));
     cJSON_AddItemToObject(json, "sender", cJSON_CreateString("central"));
+
     char *request = cJSON_Print(json);
     mqtt_publish(&client, topic, request, strlen(request), MQTT_PUBLISH_QOS_0);
+
     free(request);
     cJSON_Delete(json);
 }
 
 void change_status(Device *dev){
     char topic[100];
-
     sprintf(topic, "fse2021/180113861/%s/estado", rooms[dev->room]);
     
     cJSON *root = cJSON_CreateObject();
@@ -548,21 +569,29 @@ void change_status(Device *dev){
     cJSON_Delete(root);
 }
 
-void print_device(char* mac_addr){
+int print_device(char* mac_addr){
     int i = find_device_by_mac(mac_addr);
+    if(i == -1) {
+        return 0;
+    }
     printw("MAC: %s\n", devices[i].id);
-    printw("Aciona alarme: %d\n", devices[i].trigger_alarm);
+    printw("Cômodo: %s\n", rooms[devices[i].room]);
     printw("Nome da entrada: %s\n", devices[i].input);
     if(devices[i].mode == ENERGY_ID){
-        printw("Saída: %s\n", devices[i].output);
+        printw("Nome da saída: %s\n", devices[i].output);
+        printw("Tipo: Energia\n");
         if(devices[i].is_dimmable) {
             printw("Intensidade: %d\n", devices[i].output_status);
         }
-        printw("Tipo: Energia\n");
     } else if(devices[i].mode == BATTERY_ID){
         printw("Tipo: Bateria\n");
     }
-    printw("Cômodo: %s\n", rooms[devices[i].room]);
+    if(devices[i].trigger_alarm) {
+        printw("Aciona alarme: Sim\n");
+    } else {
+        printw("Aciona alarme: Não\n");
+    }
+    return 1;
 }
 
 int find_device_by_mac(char *mac_addr){
@@ -588,7 +617,7 @@ float find_data(int room, char type) {
     int count = 0;
     for(int i = 0; i < devices_size; i++) {
         if(devices[i].room == room && devices[i].mode == ENERGY_ID) {
-            if(devices[i].temperature == 0) {
+            if(devices[i].temperature == 0 || devices[i].humidity == 0) {
                 continue;
             }
             if(type == 't') {
@@ -621,11 +650,13 @@ void publish_callback(void **unused, struct mqtt_response_publish *published) {
             remove_device(find_device_by_mac(cJSON_GetObjectItem(root, "id")->valuestring));
         } else if(strcmp(type, "status") == 0) {
             devices[find_device_by_mac(cJSON_GetObjectItem(root, "id")->valuestring)].input_status = cJSON_GetObjectItem(root, "status")->valueint;
-                if(cJSON_GetObjectItem(root, "status")->valueint == 0) {
-                    log_data(cJSON_GetObjectItem(root, "id")->valuestring, "dispositivo de entrada desligado");
-                } else {
-                    log_data(cJSON_GetObjectItem(root, "id")->valuestring, "dispositivo entrada ligado");
-                }
+
+            if(cJSON_GetObjectItem(root, "status")->valueint == 0) {
+                log_data(cJSON_GetObjectItem(root, "id")->valuestring, "dispositivo de entrada desligado");
+            } else {
+                log_data(cJSON_GetObjectItem(root, "id")->valuestring, "dispositivo entrada ligado");
+            }
+
             check_alarm(cJSON_GetObjectItem(root, "id")->valuestring);
         } else if(strcmp(type, "frequencia") != 0){
             handle_device_data(published, type);
@@ -704,10 +735,7 @@ void handle_reconnect_request(struct mqtt_response_publish *published) {
 }
 
 void handle_device_data(struct mqtt_response_publish *published, char *type) {
-    char message[500];
-    strcpy(message, published->application_message);
-    message[published->application_message_size] = '\0';
-    cJSON *json = cJSON_Parse(message);
+    cJSON *json = cJSON_Parse(published->application_message);
 
     float data = cJSON_GetObjectItem(json, type)->valueint;
     char *mac = cJSON_GetObjectItem(json, "id")->valuestring;
@@ -742,11 +770,9 @@ void handle_register_request(struct mqtt_response_publish *published){
 }   
 
 void *check_frequence(void *args) {
-    char topic[200];
     cJSON *item = cJSON_CreateObject();
     cJSON_AddItemToObject(item, "type", cJSON_CreateString("frequencia"));
     cJSON_AddItemToObject(item, "sender", cJSON_CreateString("central"));
-
     char *message = cJSON_Print(item);
     
     while(1) {
@@ -755,6 +781,7 @@ void *check_frequence(void *args) {
                 if(devices[i].is_active == 2) {
                     remove_device(find_device_by_mac(devices[i].id));
                 }
+                char topic[100];
                 sprintf(topic, "fse2021/180113861/dispositivos/%s", devices[i].id);
                 devices[i].is_active = 2;
                 mqtt_publish(&client, topic, message, strlen(message), MQTT_PUBLISH_QOS_0);    
@@ -769,7 +796,6 @@ void *check_frequence(void *args) {
 
 void handle_remove_device(char *mac_addr) {
     char topic[100];
-    int index = find_device_by_mac(mac_addr);
     sprintf(topic, "fse2021/180113861/dispositivos/%s", mac_addr);
 
     cJSON *json = cJSON_CreateObject();
@@ -781,6 +807,7 @@ void handle_remove_device(char *mac_addr) {
     cJSON_Delete(json);
     free(message);
 
+    int index = find_device_by_mac(mac_addr);
     remove_device(index);
 }
 
