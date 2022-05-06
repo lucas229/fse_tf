@@ -43,6 +43,7 @@ Criamos um [vídeo de apresentação](https://youtu.be/THk1y65D4Zs) para demonst
 - Quando o alarme implementado na aplicação é disparado, o som é emitido pelo terminal.
 - O log de eventos é guardado em um arquivo csv na pasta "Logs" do servidor central.
 - A temperatura e a umidade que são apresentadas na tela do cômodo são a média das temperaturas e das umidades de todos os dispositivos de energia cadastrados no cômodo.
+- A biblioteca utilizada para a comunicação MQTT do servidor central pode ser encontrada no seguinte link: https://github.com/LiamBindle/MQTT-C.
 
 ## Equipe
 
